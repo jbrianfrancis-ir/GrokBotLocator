@@ -1,36 +1,31 @@
 # State
 
 ## Position
-Phase: 1 of 4 (Foundation & design system) | Plans: 10 written, 0 executed | Status: planning
-Last: 2026-09-09 — plan revision budget exhausted; 4 proven defects remain in the phase-1 plans.
-Next: answer the gate below, then /flow-plan 1 or /flow-execute 1
+Phase: 1 of 4 (Foundation & design system) | Plans: 12 written, 0 executed | Status: planning
+Last: 2026-09-09 — 25 verification findings applied across 4 review rounds; plans restructured to 12, still failing re-check on defects introduced by the fixes.
+Next: /flow-execute 1 once the plan-check passes
 
 ## Gate
-type: decision
-asked: Phase-1 plans have 4 defects I proved empirically, and /flow-plan's 3-round revision budget is spent. How should they be resolved before any Swift is written?
-options:
-  1. I apply the four fixes directly, then re-check and execute — fastest; bypasses the planner loop that has not converged on these items across 3 rounds.
-  2. Fresh planner + full checker pass against the current 10-plan structure — cleanest process; costs another long round and risks re-churn.
-  3. Execute as-is — NOT recommended: 01-04 would report TEST SUCCEEDED while the contrast test never runs, certifying an unmeasured palette.
-  4. Second opinion via /flow-oracle on the wave-graph question specifically.
-default: 1
+none
 
 ## Run
 Iteration: 1 | Started: 2026-09-09T18:28Z | Repeats: 0
-Signature: rule3:phase01:plans10/10:verifnone
+Signature: rule3:phase01:plans12/12:verifnone
 
 ## Decisions
-- init: Native SwiftUI app rather than a Shortcut (D-01)
-- init: iOS 26.0 minimum deployment target (D-07)
-- init: Accessibility-first self-authored design system (D-08)
-- init: On-disk queue is the durability mechanism, not background URLSession (D-09)
+- init: iOS 26.0 target, native SwiftUI app (D-01, D-07)
+- init: no deployable surface — deploy.tool null (D-04)
+- gate: sender key never re-rendered; "key saved" indicator (D-10)
+- gate: sign with the work team, personal app identity (D-11)
+- plan: on-disk queue is the durability mechanism, not background URLSession (D-09)
 
 ## Blockers
-- 01-04 adds DSPalette.swift + DesignSystemContrastTests.swift with no xcodegen regenerate: files never join the target, so `xcodebuild test` prints TEST SUCCEEDED while the contrast test never runs (false green).
-- Waves 3 and 4 run plans in parallel; XcodeGen 2.46 enumerates sources at generate time (0 synchronized root groups, proven), so parallel plans either fail to compile or collide regenerating one project.pbxproj.
-- CODE_SIGNING_ALLOWED=NO appears twice in 01-03, contradicting 01-01's own rule; proven to cause errSecMissingEntitlement (-34018) on every Keychain call.
-- Plans assert `** TEST SUCCEEDED **` as proof a newly added test ran; that string cannot distinguish passed from never-executed.
+- none blocking; phase 1 plans are in a review/fix loop, not stuck
 
 ## Session
-Stopped: phase-1 planning, after 3 revision rounds plus 4 empirical probes
-Resume: read .planning/research/RESEARCH.md and the Blockers above; the toolchain itself is verified working (xcodegen 2.46 + iOS 26.5 sim + Swift Testing + Keychain via entitlements/TEST_HOST)
+Stopped: phase-1 planning, awaiting re-verification at 037de19
+Resume: read .planning/research/RESEARCH.md. Toolchain facts established by probe:
+  xcodegen 2.46 enumerates sources at generate time (no synchronized groups) — any plan
+  adding a file must regenerate; a hosted test bundle is what makes Keychain work on
+  simulator (NOT the entitlement, which matters on device); a Font resolved outside a View
+  never scales, so type tokens must reach the View through a modifier.
