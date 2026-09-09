@@ -1,13 +1,18 @@
 import SwiftUI
 
-/// Placeholder root screen. 01-12 replaces this with SettingsView.
+/// The app's root: a `NavigationStack` wrapping `SettingsView`, nothing else -- ping,
+/// location, and network are later phases. The `NavigationStack` alone is what gives the
+/// screen its system chrome (translucent nav bar); `.navigationBarTitleDisplayMode(.inline)`
+/// keeps the nav bar's own title small so it doesn't duplicate SettingsView's on-screen
+/// `.dsFont(.screenTitle)` heading.
 struct RootView: View {
+    let settingsModel: SettingsModel
+
     var body: some View {
         NavigationStack {
-            Text("GrokBotLocator")
-                .dsFont(.body)
-                .padding(DSMetrics.screenMargin)
-                .navigationTitle("GrokBotLocator")
+            SettingsView(model: settingsModel)
+                .navigationTitle("Settings")
+                .navigationBarTitleDisplayMode(.inline)
         }
     }
 }
