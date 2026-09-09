@@ -8,7 +8,7 @@ Next: /flow-verify 1
 
 ## Gate
 type: human-action
-asked: Phase 1 verified, 0 gaps, smoke green. A simulator run cleared the D-10 force-quit/relaunch check and fixed 2 defects. 6 checks remain — 4 visual (AX5 reflow, VoiceOver, PingButton press+in-flight, DSChrome opaque fallback previews) and 2 device-only (real keychain-access-groups entitlement, `strings` on the device binary). Portrait lock and D-10 relaunch are simulator-proven. Run them and report pass/fail.
+asked: Phase 1 verified, 0 gaps, smoke green. A simulator run cleared the D-10 force-quit/relaunch check and fixed 2 defects. 5 checks remain — 3 preview/visual (PingButton press+in-flight, DSChrome opaque-fallback previews, PingOutcomeRow at AX5 — it has no call site yet), VoiceOver phrasing, and the Accessibility Inspector audit; plus 2 device-only (real keychain-access-groups entitlement, `strings` on the device binary). Portrait lock, D-10 relaunch, and AX5 reflow of the settings screen are proven. Run them and report pass/fail.
 options:
   1. All 8 pass — /flow-verify 1 records them, phase 1 verifies, roadmap advances to phase 2.
   2. One or more fail — the failures become gaps; /flow-plan 1 --gaps replans them.
