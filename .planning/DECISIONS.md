@@ -23,3 +23,11 @@
 - **answered**: I wrote two literal Apple Team IDs into the entry above while quoting the question, then committed and pushed them. ARCHITECTURE.md forbids DEVELOPMENT_TEAM in any tracked file. The values are redacted here. They remain in git history at commits before 0c11338; a Team ID is a low-sensitivity public identifier (it appears in any distributed app's receipt and authenticates nothing on its own), so history was NOT rewritten — that is the user's call, and force-pushing is destructive. The live values remain only in the gitignored Signing.xcconfig.
 - **by**: Brian Francis <127874124+jbrianfrancis-ir@users.noreply.github.com>
 - **at**: 0c11338 · phase 01
+
+## 2026-09-09 21:55 · checkpoint-decision
+- **asked**: Deploying to a physical iPhone needs a provisioning profile, but DEVELOPMENT_TEAM is the work team and only an Apple *Distribution* cert exists for it (no Development cert); the sole Apple Development cert on the Mac belongs to a personal team. Sign local device builds with the personal team, the work team, or don't deploy? [Team IDs redacted per the 2026-09-09 19:45 entry — ARCHITECTURE.md forbids them in tracked files.]
+- **answered**: Personal team, for local device builds only. Applied as xcodebuild command-line overrides (CODE_SIGN_STYLE/CODE_SIGN_IDENTITY/DEVELOPMENT_TEAM) — Signing.xcconfig and project.yml were NOT modified, so the work team remains the committed configuration for distribution.
+- **UNRESOLVED CONFLICT**: the 2026-09-09 19:30 entry chose the work team precisely because a *free* personal team's profiles expire after 7 days, stranding the app mid-trip (D-03). If this personal team is free, that risk returns for any real trip use. Adequate for closing the two device-only verification checks; NOT settled for shipping. Needs a human call before the app is relied on.
+- **blocked-on**: Xcode has no Apple ID signed in ("No Accounts: Add a new account in Accounts settings"), so no profile could be created. Nothing was registered in any developer account; the build failed closed.
+- **by**: Brian Francis <127874124+jbrianfrancis-ir@users.noreply.github.com>
+- **at**: 3a4f353 · phase 01
