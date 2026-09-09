@@ -58,12 +58,17 @@ unverified: []
 | 01-12 after force-quit, relaunch repopulates url + header, key field empty w/ saved indicator, nothing reveals it | HUMAN (device) | in-process half is proven (`.task { model.load() }` at SettingsView:71 + `✔ loadFillsURLAndHeaderButNeverTheKey`); real force-quit persistence needs a device |
 
 ## Human checks
+<!-- 2026-09-09 simulator run (orchestrator): app launched on iPhone 17 Pro / iOS 26.5.
+     Two defects found and fixed on the spot (d34018c, 463ef71): (1) no UILaunchScreen key,
+     so iOS ran the app letterboxed and never gave it the full screen; (2) RootView's
+     navigationTitle duplicated SettingsView's on-screen screenTitle heading. smoke.sh
+     re-run green after both. Checks below reflect the post-fix build. -->
 - [ ] Launch once on simulator: opens portrait, rotating does not switch to landscape.
 - [ ] PingButton previews: press-and-hold visibly changes the fill; `isInFlight` shows a spinner beside a changed word; VoiceOver reads label + state.
 - [ ] CredentialField and PingOutcomeRow at AX5, light and dark: label/field/saved-indicator and the badge reflow with no clipping or overlap; VoiceOver reads the label and the saved-indicator value; no control reveals a secure value.
 - [ ] DSChrome's three previews: default is translucent `thinMaterial`; "Reduce Transparency on" and "Increase Contrast on" both render a fully opaque DSPalette fill.
 - [ ] On a physical iPhone: install and confirm `SecItem` calls succeed under the real `keychain-access-groups` entitlement (simulator passes on test hosting alone, so smoke.sh cannot prove this).
-- [ ] On device, default text size: enter url/key/header, save, force-quit, relaunch — url and header repopulate, key shows "Key saved" with no value and no reveal control (D-10); an `http://` url gives an on-screen field error (SC-05/06).
+- [x] **SIMULATOR-PROVEN 2026-09-09** — save, `simctl terminate` (SIGKILL, force-quit equivalent), relaunch: url and header repopulated, Sender key rendered `✓ Key saved` with no value and no reveal control (D-10 holds). Screenshot evidence. Device rerun still wanted only for the entitlement path; the `http://` field-error half is untested (needs typing into the UI).
 - [ ] On device: run `strings` on the built binary — neither the sender key nor the webhook host appears.
 - [ ] At AX5 in light and dark, run the Accessibility Inspector audit on the settings screen: zero contrast or hit-target failures (REQ-12).
 
