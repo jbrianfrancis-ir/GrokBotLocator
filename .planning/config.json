@@ -1,0 +1,13 @@
+{
+  "mode": "interactive",
+  "commit_docs": true,
+  "agents": { "provider": "native" },
+  "deploy": { "tool": null },
+  "design": { "system": null },
+  "git": {
+    "base": "main",
+    "origin": null,
+    "upstream": null,
+    "branch": "flow/grok-bot-locator"
+  }
+}
