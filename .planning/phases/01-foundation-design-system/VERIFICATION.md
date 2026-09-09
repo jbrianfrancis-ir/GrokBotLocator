@@ -63,7 +63,7 @@ unverified: []
      so iOS ran the app letterboxed and never gave it the full screen; (2) RootView's
      navigationTitle duplicated SettingsView's on-screen screenTitle heading. smoke.sh
      re-run green after both. Checks below reflect the post-fix build. -->
-- [ ] Launch once on simulator: opens portrait, rotating does not switch to landscape.
+- [x] **SIMULATOR-PROVEN 2026-09-09** — launches portrait; rotated the device right (Simulator window went 779x453, i.e. chassis genuinely landscape) and the framebuffer stayed 1206x2622 portrait with the UI upright and unchanged. Rotated back. Portrait lock holds.
 - [ ] PingButton previews: press-and-hold visibly changes the fill; `isInFlight` shows a spinner beside a changed word; VoiceOver reads label + state.
 - [ ] CredentialField and PingOutcomeRow at AX5, light and dark: label/field/saved-indicator and the badge reflow with no clipping or overlap; VoiceOver reads the label and the saved-indicator value; no control reveals a secure value.
 - [ ] DSChrome's three previews: default is translucent `thinMaterial`; "Reduce Transparency on" and "Increase Contrast on" both render a fully opaque DSPalette fill.
