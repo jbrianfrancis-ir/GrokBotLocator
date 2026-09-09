@@ -13,7 +13,13 @@
 - **at**: 9e3c723 · phase 01 / plan 01-10
 
 ## 2026-09-09 19:30 · checkpoint-decision
-- **asked**: Sign this personal app with the Informative Research work team (VZ4U5F6C9L), or a personal team (9N539A88H5)? A free personal team's provisioning profiles expire after 7 days, which would strand the app mid-trip (D-03).
+- **asked**: Sign this personal app with the Informative Research work team, or a personal team? A free personal team's provisioning profiles expire after 7 days, which would strand the app mid-trip (D-03). [Team IDs redacted — see redaction note below.]
 - **answered**: Keep the work team for signing only. The app stays personal — bundle id is com.bfrancis.grokbotlocator, not a company prefix. User was shown that this registers the App ID under the employer's developer account.
 - **by**: Brian Francis <127874124+jbrianfrancis-ir@users.noreply.github.com>
 - **at**: a68b10f · phase 01
+
+## 2026-09-09 19:45 · secret-scan-clearance
+- **asked**: N/A — self-reported policy violation, not a gate the human raised.
+- **answered**: I wrote two literal Apple Team IDs into the entry above while quoting the question, then committed and pushed them. ARCHITECTURE.md forbids DEVELOPMENT_TEAM in any tracked file. The values are redacted here. They remain in git history at commits before 0c11338; a Team ID is a low-sensitivity public identifier (it appears in any distributed app's receipt and authenticates nothing on its own), so history was NOT rewritten — that is the user's call, and force-pushing is destructive. The live values remain only in the gitignored Signing.xcconfig.
+- **by**: Brian Francis <127874124+jbrianfrancis-ir@users.noreply.github.com>
+- **at**: 0c11338 · phase 01
