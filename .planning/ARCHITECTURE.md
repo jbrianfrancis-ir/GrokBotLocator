@@ -3,10 +3,10 @@
 ## Stack
 | What | Exactly | Version |
 |------|---------|---------|
-| Platform | iOS (iPhone, portrait) | 18.0 min deployment target |
+| Platform | iOS (iPhone, portrait) | 26.0 min deployment target |
 | Language | Swift, strict concurrency | 6.3.3 |
 | Toolchain | Xcode | 26.6 (17F113) |
-| UI | SwiftUI + Observation (`@Observable`) | iOS 18 SDK |
+| UI | SwiftUI + Observation (`@Observable`), Liquid Glass on chrome | iOS 26 SDK |
 | Project file | XcodeGen from `project.yml` | 2.46.0 |
 
 ## Principles
@@ -14,13 +14,14 @@
 - **Credentials live only in the Keychain** — never in source, `project.yml`, `Info.plist`, `UserDefaults`, or a log line.
 - **No ping is silently dropped.** Every send succeeds, is durably queued, or is recorded as failed with a user-visible reason.
 - **Fully usable at "When In Use".** Manual pings work without `Always`; `Always` only unlocks automatic triggers.
+- **`DESIGN.md` is binding.** No type below 17pt, no tap target under 60pt, no state conveyed by colour alone, Dynamic Type to AX5 — the app must be usable without reading glasses.
 - **Transport and storage are protocol-backed and injected** — delivery is testable without a device or live webhook.
 
 ## Smoke
-- **Command**: `./scripts/smoke.sh` — `xcodegen generate`, build for an iOS 18 simulator, run the test bundle.
+- **Command**: `./scripts/smoke.sh` — `xcodegen generate`, build for an iOS 26 simulator, run the test bundle.
 - **Pass looks like**: exit 0; `** TEST SUCCEEDED **`; encoder test asserts `{"lat":<num>,"lng":<num>,"accuracy_m":<num>,"label":<string>}`.
 
-## Frameworks & libraries (all iOS 18 SDK, no third-party)
+## Frameworks & libraries (all iOS 26 SDK, no third-party)
 - CoreLocation — fixes, significant-change, visits, `CLMonitor` regions
 - Security (Keychain) — webhook URL / key / header storage
 - Foundation `URLSession` — webhook POST
@@ -52,3 +53,4 @@
 - Storing or logging the sender key, the webhook URL, or raw coordinates.
 - Committing `DEVELOPMENT_TEAM`, a bundle id, or a provisioning profile.
 - Force-unwrapping a `CLLocation` or a network response.
+- Liquid Glass behind body text, credential fields, or the primary action (chrome only — see `DESIGN.md`).

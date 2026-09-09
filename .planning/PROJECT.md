@@ -22,4 +22,6 @@ Tapping "I'm here" in Puglia reliably delivers `lat`/`lng` to the Grok routine �
 | D-03 | Paid Apple Developer account for signing | A free personal team's 7-day signing expiry would strand the app mid-trip with no Mac nearby | 2026-09-09 |
 | D-04 | `deploy.tool: null` — no deployable surface | The app ships to the device via Xcode/TestFlight and the webhook receiver is Grok-hosted; there is nothing to provision, harden, or release to Azure | 2026-09-09 |
 | D-05 | Zero third-party dependencies, iOS SDK only | Keeps the build reproducible and signing trivial; every capability needed exists in CoreLocation, Security, Foundation, and Network | 2026-09-09 |
-| D-06 | Webhook URL, sender key, and header name are all user-entered at runtime | The key must never enter the repo, and the routine panel's header name is not yet confirmed — configurability removes it as a blocker | 2026-09-09 |
+| D-06 | Webhook URL, sender key, and header name are all user-entered at runtime | The key must never enter the repo; `Authorization: Bearer` is the confirmed default, editable so a panel change needs no rebuild | 2026-09-09 |
+| D-07 | iOS 26.0 minimum deployment target | The only target device runs iOS 26; unlocks `CLMonitor` and Liquid Glass, and removes all back-deployment branching | 2026-09-09 |
+| D-08 | Accessibility-first design system in `DESIGN.md`, self-authored | The app must be readable without reading glasses in bright sun; a linked Claude Design system was not needed for two screens | 2026-09-09 |
