@@ -3,12 +3,12 @@
 
 ## Position
 Phase: 1 of 4 (Foundation & design system) | Plans: 12/12 | Status: verifying
-Last: 2026-09-09 — phase 1 executed: 12/12 plans, smoke PASS (21 tests/5 suites), zero gaps; 8 human checks outstanding.
+Last: 2026-09-09 — phase 1 executed, smoke PASS, 0 gaps. Simulator run fixed 2 defects (letterboxing, duplicate title); D-10 relaunch check PROVEN on simulator.
 Next: /flow-verify 1
 
 ## Gate
 type: human-action
-asked: Phase 1 verified with zero gaps and a passing smoke gate, but 8 truths need a human — 4 visual (AX5/light+dark reflow, VoiceOver, PingButton press+in-flight, DSChrome opaque fallback previews) and 4 device-only (portrait lock, real keychain-access-groups entitlement, force-quit persistence with D-10 key never revealed, `strings` on the binary). Run them and report pass/fail.
+asked: Phase 1 verified, 0 gaps, smoke green. A simulator run cleared the D-10 force-quit/relaunch check and fixed 2 defects. 7 checks remain — 4 visual (AX5 reflow, VoiceOver, PingButton press+in-flight, DSChrome opaque fallback previews) and 3 device-only (portrait lock on rotation, real keychain-access-groups entitlement, `strings` on the device binary). Run them and report pass/fail.
 options:
   1. All 8 pass — /flow-verify 1 records them, phase 1 verifies, roadmap advances to phase 2.
   2. One or more fail — the failures become gaps; /flow-plan 1 --gaps replans them.
