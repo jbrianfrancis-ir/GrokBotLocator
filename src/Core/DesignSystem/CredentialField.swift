@@ -104,7 +104,7 @@ struct CredentialField: View {
 }
 
 private struct CredentialFieldPreviewStack: View {
-    @State private var plainValue = "https://example.com/hook"
+    @State private var plainValue = "https://example.invalid/webhook"
     @State private var secureValue = ""
     @State private var secureWithSavedValue = ""
 
