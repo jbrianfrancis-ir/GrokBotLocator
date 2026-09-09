@@ -1,7 +1,7 @@
 # Requirements
 
 ## Must have (v1)
-- REQ-01: Settings stores webhook URL, sender key, header name in the Keychain — accept: survive relaunch; absent from a `UserDefaults` dump and from `strings` on the binary.
+- REQ-01: Settings stores webhook URL, sender key, header name in the Keychain — accept: all three survive relaunch; url and header repopulate on screen while the key shows a "key saved" indicator and is never re-rendered (D-10); absent from a `UserDefaults` dump and from `strings` on the binary.
 - REQ-02: "I'm here" button captures one fix and POSTs `{"lat","lng","accuracy_m","label"}` to the configured URL with the configured header — accept: stub server receives that exact JSON, `lat`/`lng` numeric; status shown to user.
 - REQ-03: Optional label, remembered between pings, editable before sending — accept: type "Gallipoli", send, relaunch, field still reads "Gallipoli".
 - REQ-04: Ping history list: timestamp, coordinates, label, outcome (sent / queued / failed + reason) — accept: one success and one forced failure give two rows with distinct outcomes.
