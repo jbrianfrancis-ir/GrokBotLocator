@@ -15,6 +15,9 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait"
+        # Without a UILaunchScreen, iOS runs the app letterboxed in compatibility mode and
+        # never hands it the full screen. Generation: YES emits the empty dict that opts in.
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
         CODE_SIGN_IDENTITY: "-"
         CODE_SIGN_ENTITLEMENTS: GrokBotLocator.entitlements
     configFiles:
