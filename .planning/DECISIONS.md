@@ -11,3 +11,9 @@
 - **answered**: Show "key saved" with the value withheld. User's reasoning: avoid exposing a credential on screen.
 - **by**: Brian Francis <127874124+jbrianfrancis-ir@users.noreply.github.com>
 - **at**: 9e3c723 · phase 01 / plan 01-10
+
+## 2026-09-09 19:30 · checkpoint-decision
+- **asked**: Sign this personal app with the Informative Research work team (VZ4U5F6C9L), or a personal team (9N539A88H5)? A free personal team's provisioning profiles expire after 7 days, which would strand the app mid-trip (D-03).
+- **answered**: Keep the work team for signing only. The app stays personal — bundle id is com.bfrancis.grokbotlocator, not a company prefix. User was shown that this registers the App ID under the employer's developer account.
+- **by**: Brian Francis <127874124+jbrianfrancis-ir@users.noreply.github.com>
+- **at**: a68b10f · phase 01
