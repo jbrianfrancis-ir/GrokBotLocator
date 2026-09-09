@@ -1,16 +1,23 @@
+<!-- .planning/STATE.md — cap 1.5KB. Rewrite sections in place; never append. -->
 # State
 
 ## Position
-Phase: 1 of 4 (Foundation & design system) | Plans: 12 planned, 0 executed | Status: ready
-Last: 2026-09-09 — phase 1 plan-check PASSED: 29 findings resolved, zero regressions, ordering clean.
-Next: /flow-execute 1
+Phase: 1 of 4 (Foundation & design system) | Plans: 12/12 | Status: verifying
+Last: 2026-09-09 — phase 1 executed: 12/12 plans, smoke PASS (21 tests/5 suites), zero gaps; 8 human checks outstanding.
+Next: /flow-verify 1
 
 ## Gate
-none
+type: human-action
+asked: Phase 1 verified with zero gaps and a passing smoke gate, but 8 truths need a human — 4 visual (AX5/light+dark reflow, VoiceOver, PingButton press+in-flight, DSChrome opaque fallback previews) and 4 device-only (portrait lock, real keychain-access-groups entitlement, force-quit persistence with D-10 key never revealed, `strings` on the binary). Run them and report pass/fail.
+options:
+  1. All 8 pass — /flow-verify 1 records them, phase 1 verifies, roadmap advances to phase 2.
+  2. One or more fail — the failures become gaps; /flow-plan 1 --gaps replans them.
+  3. Defer the device-only 4, run the 4 visual now — partial sign-off; entitlement/persistence stay unproven until a device is available.
+default: none
 
 ## Run
 Iteration: 2 | Started: 2026-09-09T18:28Z | Repeats: 0
-Signature: rule4:phase01:plans0/12:verifnone
+Signature: rule4:phase01:plans12/12:verifhuman_needed
 
 ## Decisions
 - init: iOS 26.0 target, native SwiftUI app (D-01, D-07)
@@ -23,11 +30,9 @@ Signature: rule4:phase01:plans0/12:verifnone
 - none
 
 ## Session
-Stopped: phase 1 planned and checked; ready to execute
-Resume: /flow-execute 1. Toolchain facts established by probe and pinned in the plans:
-  xcodegen 2.46 enumerates sources at generate time (every plan adding a file regenerates);
-  a HOSTED test bundle is what makes Keychain work on simulator, not the entitlement, which
-  matters on device and smoke.sh cannot prove; a Font resolved outside a View never scales,
-  so type tokens reach the View through a ViewModifier.
-  Non-blocking leftovers: ARCHITECTURE.md:49 "or header" wording; widen
-  `grep 'static let .*Font'` to `static (let|var)`; 01-09 has one task.
+Stopped: phase 1 executed and verified; smoke green, zero gaps, 8 human checks pending
+Resume: /flow-verify 1 to walk the checks. Facts worth carrying: only the iOS 26.5 runtime
+  is installed (no 26.0); Swift Testing counts, XCTest's "Executed N" line is always 0;
+  DSChrome has no call site yet, so its opaque fallback is preview-only; every Keychain test
+  passes on simulator via test-host identity alone, so an entitlement regression stays
+  invisible until a device install.
