@@ -1,0 +1,13 @@
+{
+  "enabledPlugins": {
+    "devflow@devflow": true
+  },
+  "extraKnownMarketplaces": {
+    "devflow": {
+      "source": {
+        "source": "github",
+        "repo": "jbrianfrancis-ir/devflow"
+      }
+    }
+  }
+}
