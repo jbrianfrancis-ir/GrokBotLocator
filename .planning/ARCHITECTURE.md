@@ -25,13 +25,14 @@
 - CoreLocation — fixes, significant-change, visits, `CLMonitor` regions
 - Security (Keychain) — webhook URL / key / header storage
 - Foundation `URLSession` — webhook POST
-- Network `NWPathMonitor` — connectivity observation for retry
+- Network `NWPathMonitor` — gating retries while the process is alive (cannot wake a suspended app)
+- BackgroundTasks `BGAppRefreshTask` — supplementary opportunistic queue drain
 - Swift Testing (bundled with Xcode 26.6) — unit tests
 
 ## Architecture & patterns
 - App code under `src/`, tests under `tests/`; `project.yml` and `scripts/` at the root.
 - Feature folders under `src/` (`Settings/`, `Ping/`, `Triggers/`, `Queue/`) plus `Core/` for Keychain/payload/transport.
-- Offline queue is a `Codable` array in Application Support via `FileManager` — no SwiftData, no Core Data.
+- Offline queue is a `Codable` array in Application Support via `FileManager` — no SwiftData, no Core Data. The file is the durability mechanism; drain on every wake with a plain `URLSession`. `URLSessionConfiguration.background` is not the primary path.
 - All location work sits in one actor-isolated coordinator; views never touch `CLLocationManager`.
 
 ## Infrastructure (Azure / Aspire resources)

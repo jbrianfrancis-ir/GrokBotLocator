@@ -9,7 +9,8 @@ Next: /flow-plan 1
 none
 
 ## Run
-<!-- absent until /flow-next drives the project -->
+Iteration: 1 | Started: 2026-09-09T18:28Z | Repeats: 0
+Signature: rule3:phase01:plans0/0:verifnone
 
 ## Decisions
 - init: Native SwiftUI app rather than a Shortcut (D-01)
