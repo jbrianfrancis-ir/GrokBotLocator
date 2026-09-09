@@ -31,7 +31,9 @@ struct KeychainCredentialStore: CredentialStore {
         guard let senderKey = try readString(account: Account.senderKey) else {
             return nil
         }
-        let headerName = try readString(account: Account.headerName)
+        // An explicit empty save is treated the same as never having saved one -- both
+        // fall back to the default, so a cleared header field never sticks as blank.
+        let headerName = try readString(account: Account.headerName).flatMap { $0.isEmpty ? nil : $0 }
             ?? WebhookCredentials.defaultHeaderName
         return WebhookCredentials(url: url, senderKey: senderKey, headerName: headerName)
     }
