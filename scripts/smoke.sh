@@ -12,6 +12,19 @@ if [[ ! -f Signing.xcconfig ]]; then
     exit 1
 fi
 
+echo "==> type-scale guard: no sub-17pt font literal or raw system-size call outside DSTypography"
+EXEMPT="src/Core/DesignSystem/DSTypography.swift"
+GUARD_HITS=$(grep -rnE \
+    -e '\.font\([[:space:]]*\.system\([[:space:]]*size:' \
+    -e 'size:[[:space:]]*-?([0-9]|1[0-6])(\.[0-9]+)?\b' \
+    src --include='*.swift' 2>/dev/null | grep -v "^${EXEMPT}:" || true)
+
+if [[ -n "$GUARD_HITS" ]]; then
+    echo "type-scale guard failed -- font-size literal below 17pt or raw .font(.system(size:)) outside DSTypography:" >&2
+    echo "$GUARD_HITS" >&2
+    exit 1
+fi
+
 echo "==> xcodegen generate"
 xcodegen generate
 
