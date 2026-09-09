@@ -19,7 +19,7 @@ Driving requirement: **legible and operable without reading glasses**, one-hande
 ## Components (by group)
 - Primary action: `PingButton` — full-width, bottom third of the screen for one-handed reach, 28pt semibold label, distinct pressed and in-flight states.
 - Status: `PingOutcomeRow` — timestamp, coordinates, label, outcome. Outcome is **always** symbol + word + color, never color alone.
-- Input: `CredentialField` — 20pt text, visible field labels (never placeholder-only), secure entry with a reveal toggle for the sender key.
+- Input: `CredentialField` — 20pt text, visible field labels (never placeholder-only), secure entry with **no reveal control**; a stored sender key is never re-displayed and shows a "key saved" indicator instead (D-10).
 - Chrome: navigation and toolbars only.
 
 ## Rules
