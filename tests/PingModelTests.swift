@@ -289,6 +289,87 @@ struct PingModelTests {
         #expect(sentAnnouncement != failedAnnouncement)
     }
 
+    /// The defect this pins: `lastAnnouncement` was a plain `String?` and the view announces on
+    /// change, so a SECOND ping with the same outcome produced the same sentence, `onChange` did
+    /// not fire, and nothing was spoken. Two successes in a row is the ordinary case (ping, walk,
+    /// ping), and two identical failures is the first-run case (no credentials saved). DESIGN.md
+    /// requires the outcome announced, not just drawn. The old test could not see this: it only
+    /// ever compared two DIFFERENT outcomes.
+    @Test
+    func twoIdenticalOutcomesStillProduceTwoDistinctAnnouncements() async {
+        let fakes = Fakes()
+        let model = fakes.makeModel()
+        fakes.sender.attemptToReturn = PingAttempt(
+            fix: Self.fixtureFix, disposition: .sent, statusCode: 200, responseBody: nil)
+
+        await model.ping()
+        let first = model.lastAnnouncement
+        await model.ping()
+        let second = model.lastAnnouncement
+
+        #expect(first != nil)
+        #expect(second != nil)
+        // Same words -- that is the point -- but distinct values, so the view announces both.
+        #expect(first?.text == second?.text)
+        #expect(first != second)
+    }
+
+    /// Two identical FAILURES too: the reason string is identical every time for a persistent
+    /// 401 or missing credentials, which is the shape a value-keyed announcement silenced.
+    @Test
+    func twoIdenticalFailuresStillProduceTwoDistinctAnnouncements() async {
+        let fakes = Fakes()
+        let model = fakes.makeModel()
+        fakes.sender.attemptToReturn = PingAttempt(
+            fix: Self.fixtureFix, disposition: .permanentFailure(reason: "Add your webhook URL."),
+            statusCode: 401, responseBody: nil)
+
+        await model.ping()
+        let first = model.lastAnnouncement
+        await model.ping()
+        let second = model.lastAnnouncement
+
+        #expect(first?.text == second?.text)
+        #expect(first != second)
+    }
+
+    /// One sentence per state. An authorization-caused failure sets `guidance` to the very
+    /// sentence the standing notice already shows; rendering both stacked two tall blocks saying
+    /// the same thing (and, before the sentences were unified, two that disagreed).
+    @Test
+    func guidanceIsDroppedWhenItWouldRepeatTheAuthorizationNotice() async {
+        let fakes = Fakes()
+        let model = fakes.makeModel()
+        let denied = LocationFixError.deniedForApp.reason
+        fakes.fixes.notice = denied
+        fakes.sender.attemptToReturn = PingAttempt(
+            fix: nil, disposition: .permanentFailure(reason: denied), statusCode: nil,
+            responseBody: nil)
+
+        await model.ping()
+
+        #expect(model.authorizationNotice == denied)
+        #expect(model.guidance == nil)
+        #expect(model.log.entries.isEmpty)
+    }
+
+    /// The complement: a guidance sentence that is NOT the notice survives, so suppression is
+    /// scoped to the duplicate rather than swallowing every fix-less explanation.
+    @Test
+    func guidanceSurvivesWhenItDiffersFromTheNotice() async {
+        let fakes = Fakes()
+        let model = fakes.makeModel()
+        fakes.fixes.notice = "Manual pings work now."
+        fakes.sender.attemptToReturn = PingAttempt(
+            fix: nil, disposition: .permanentFailure(reason: LocationFixError.timedOut.reason),
+            statusCode: nil, responseBody: nil)
+
+        await model.ping()
+
+        #expect(model.guidance == LocationFixError.timedOut.reason)
+        #expect(model.authorizationNotice == "Manual pings work now.")
+    }
+
     // MARK: Authorization notice (REQ-10)
 
     @Test

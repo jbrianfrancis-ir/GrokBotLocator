@@ -72,7 +72,9 @@ struct PingHomeView: View {
         .task { await model.refreshAuthorizationNotice() }
         // DESIGN.md: the ping outcome is announced, not just rendered.
         .onChange(of: model.lastAnnouncement) { _, new in
-            if let new { AccessibilityNotification.Announcement(new).post() }
+            // Keyed off the whole announcement, not its text: two pings with the same outcome
+            // carry the same sentence, and keying off the string left the second one silent.
+            if let new { AccessibilityNotification.Announcement(new.text).post() }
         }
     }
 
