@@ -40,3 +40,19 @@
   never says "UserDefaults", `CLBackgroundActivitySession` never says "CLLocationManager", and an
   anchored `.font(` pattern misses `.system(size:)` on the next line. A guard with no probe only
   proves nobody has yet written the string it happens to match.
+- Parallel executors sharing one checkout must stage by explicit path. `git add -A`/`-a` takes
+  whatever a sibling left staged: in phase 03 wave 2 it happened three times — 03-01's commit
+  swept 03-04's staged tests, 03-01 then nearly destroyed them "fixing" it (reverted in time),
+  and 03-01's own SUMMARY landed under a 03-04 commit. Code stayed correct; attribution did not.
+  Never rewrite shared history to repair this — document it and move on.
+- Per-plan `SMOKE_DERIVED_DATA` isolates the build LOG, not the SOURCES. Every plan's gate is a
+  whole-project build, so within a wave it compiles every sibling's in-flight edits and a plan
+  cannot observe its own gate green until the whole wave lands. The wave gate belongs to the
+  orchestrator at fan-in. Phase 02 never hit this: 13 plans, 13 waves.
+- Waiting for a file to stop changing is not a completion signal — the same trap hosts.md records
+  for phase directories. An executor watched a sibling's mtime for "stable" and would have waited
+  forever; the sibling was mid-edit.
+- Swift 6 strict concurrency rejects an escaping closure mutating a captured local `var`
+  ("Mutation of captured var ... in concurrently-executing code") even when a lock serializes it.
+  Prefer `Synchronization.Mutex<T>`, which is genuinely `Sendable` and lets the compiler prove
+  `withLock` safe, over an `NSLock` + `@unchecked Sendable` box, which only asserts it.
