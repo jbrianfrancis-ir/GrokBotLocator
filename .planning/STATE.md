@@ -1,25 +1,24 @@
 <!-- .planning/STATE.md — cap 1.5KB. Rewrite sections in place; never append. -->
 # State
 ## Position
-Phase: 2 of 4 (Manual ping) | Plans: 13/13 | PR #2 OPEN, CLEAN | Verify: human_needed
-Last: 2026-09-10 — PR #2 opened. 7-lens review: 1 security blocking (redirect leaked key+coords) + 8 defects fixed, each falsified. Gate 84->107 tests.
-Next: run the human checks in VERIFICATION.md; human review+merge of PR #2
+Phase: 2 of 4 MERGED (PR #2, 76fd308) — integrated, NOT verified | main green 107/12
+Last: 2026-09-10 — PR #2 merged 19:04Z, 11 checks unrun. Review fixed 9 defects, incl. a redirect leaking key+coords while showing "Sent".
+Next: /flow-plan 3 — its FIRST task is the 5th payload key
 ## Gate
-type: verification-human-checks
-asked: On-screen acceptance needs a human — 6 checks in VERIFICATION.md (endpoint ping + 401, label survives force-quit, When-In-Use/Never, phase-01's 3 deferred components, REQ-12 Inspector both screens, REQ-11 401). Plus: 2 ARCHITECTURE contradictions to settle before phase 03.
-options: run them and record pass/fail | merge and carry them | waive (not advised)
-default: run them
-note: AX5 actionLabel>screenTitle is ACCEPTED (15:30); never file it.
+none — D-12 (19:10) answered both: queue file sanctioned for coordinates (protected, backup-excluded,
+deleted on delivery); wire format gains `at` (ISO-8601 time of the FIX) as a 5th pinned key.
+Still open but NOT blocking: 11 on-screen checks from phase 02 (ROADMAP "Carried out of phase 02").
 ## Run
-Iteration: 3 | Started: 2026-09-10T15:31Z | Repeats: 0
-Signature: rule4:phase02:plans13/13:verifhuman_needed
+Iteration: 1 | Started: 2026-09-10T19:10Z | Repeats: 0
+Signature: rule6:phase03:plans0/0:verifnone
 ## Decisions
 - init: iOS 26.0; deploy.tool null — merge is terminal (D-01/04/07)
-- 15:30: curves LEFT ALONE; AX5 inversion accepted, pinned by 02-01
+- 15:30: type curves LEFT ALONE; AX5 inversion accepted, pinned by 02-01
+- D-12: queue is the one sanctioned coordinate store; payload gains `at`
 ## Blockers
 - none
 ## Session
-Stopped: PR #2 open (https://github.com/jbrianfrancis-ir/GrokBotLocator/pull/2), CLEAN, 0 checks (no CI).
-Resume: human checks, then merge. GATE for human: 2 ARCHITECTURE contradictions block
-  phase 03 (queue vs raw-coordinates ban; no timestamp in pinned payload). ACTION: re-save
-  credentials on the iPhone (ThisDeviceOnly).
+Stopped: on main at 76fd308. Planning edits UNCOMMITTED (base-branch commits forbidden);
+  phase 03's branch picks them up.
+Resume: /flow-plan 3. The 5-key wire change is phase 03 task 1 — the app still sends 4 keys, so
+  run REQ-02's acceptance check after it lands. LEARNINGS.md has the timeout/body remediation.
