@@ -14,30 +14,68 @@ struct PingModelTests {
     // MARK: Fakes
 
     /// Replays a caller-set `PingAttempt` and can suspend inside `send(label:)` until the
-    /// test calls `release()`, so the in-flight window is directly observable. `@unchecked
-    /// Sendable` per `PingSenderTests`'s fakes -- state is only ever touched sequentially
-    /// within one awaited test, all on the main actor.
+    /// test calls `release()`, so the in-flight window is directly observable.
+    ///
+    /// `PingSending.send` is a nonisolated async requirement, so its body runs OFF this
+    /// `@MainActor` suite while `release()` runs on it -- every field here is therefore
+    /// lock-guarded rather than merely sequential. `release()` is also order-independent: it
+    /// latches `released`, so a test that calls it before `send` reaches
+    /// `withCheckedContinuation` still resumes the call. Without that latch the suite hung
+    /// intermittently (2 runs in 5): `callCount` is bumped BEFORE the continuation is stored,
+    /// so a test spinning on `callCount` could release into a nil continuation and nothing
+    /// would ever resume it.
     private final class FakeSender: PingSending, @unchecked Sendable {
-        var attemptToReturn = PingAttempt(
+        private let lock = NSLock()
+        private var _attemptToReturn = PingAttempt(
             fix: nil, disposition: .sent, statusCode: nil, responseBody: nil)
-        var shouldSuspend = false
-        private(set) var callCount = 0
-        private(set) var labels: [String] = []
+        private var _shouldSuspend = false
+        private var _callCount = 0
+        private var _labels: [String] = []
         private var continuation: CheckedContinuation<Void, Never>?
+        private var released = false
+
+        var attemptToReturn: PingAttempt {
+            get { lock.withLock { _attemptToReturn } }
+            set { lock.withLock { _attemptToReturn = newValue } }
+        }
+
+        var shouldSuspend: Bool {
+            get { lock.withLock { _shouldSuspend } }
+            set { lock.withLock { _shouldSuspend = newValue } }
+        }
+
+        var callCount: Int { lock.withLock { _callCount } }
+        var labels: [String] { lock.withLock { _labels } }
 
         func send(label: String) async -> PingAttempt {
-            callCount += 1
-            labels.append(label)
-            if shouldSuspend {
-                await withCheckedContinuation { continuation = $0 }
+            let suspend: Bool = lock.withLock {
+                _callCount += 1
+                _labels.append(label)
+                return _shouldSuspend
+            }
+            if suspend {
+                await withCheckedContinuation { c in
+                    let resumeNow: Bool = lock.withLock {
+                        if released { return true }
+                        continuation = c
+                        return false
+                    }
+                    if resumeNow { c.resume() }
+                }
             }
             return attemptToReturn
         }
 
-        /// Resumes a call suspended by `shouldSuspend`, letting `ping()` complete.
+        /// Resumes a call suspended by `shouldSuspend`, letting `ping()` complete. Safe to call
+        /// before `send` has suspended -- the `released` latch makes the order irrelevant.
         func release() {
-            continuation?.resume()
-            continuation = nil
+            let c: CheckedContinuation<Void, Never>? = lock.withLock {
+                released = true
+                let pending = continuation
+                continuation = nil
+                return pending
+            }
+            c?.resume()
         }
     }
 
