@@ -203,4 +203,46 @@ struct PingTransportTests {
         }
         #expect(!headers.keys.contains { $0.caseInsensitiveCompare("Authorization") == .orderedSame })
     }
+    // MARK: Redirects are refused, not followed
+
+    /// The defect this pins: URLSession follows up to 20 redirects transparently. A webhook that
+    /// answers 307 with a `Location` on another host made CFNetwork re-send this request there,
+    /// carrying the raw coordinates in the body -- and the sender key too, unless the header
+    /// happened to be `Authorization`, the only name CFNetwork strips cross-host. The client then
+    /// saw that host's 200, so the app reported a green "Sent" for a ping delivered to a host the
+    /// user never configured. One redirect response was the whole exploit.
+    ///
+    /// Asserts the delegate's answer, because that answer IS the refusal: returning nil from
+    /// `willPerformHTTPRedirection` is what stops the re-send.
+    @Test
+    func theTransportRefusesARedirectToAnotherHost() async throws {
+        let original = try #require(URL(string: "https://webhook.example.com/ping"))
+        let elsewhere = try #require(URL(string: "https://attacker.example.net/leak"))
+        let redirect = try #require(
+            HTTPURLResponse(
+                url: original, statusCode: 307, httpVersion: "HTTP/1.1",
+                headerFields: ["Location": elsewhere.absoluteString]))
+        let session = URLSession(configuration: .ephemeral)
+
+        let followed = await RedirectRefusal().urlSession(
+            session, task: session.dataTask(with: original),
+            willPerformHTTPRedirection: redirect, newRequest: URLRequest(url: elsewhere))
+
+        #expect(
+            followed == nil,
+            "a redirect must never be followed -- it re-sends the sender key and the coordinates")
+    }
+
+    /// And the classifier arm a refused redirect now actually reaches: while the session consumed
+    /// the redirect, this arm was unreachable for a 3xx despite the comment claiming otherwise.
+    @Test
+    func aRefusedRedirectReadsAsAPermanentFailureNamingTheCode() {
+        let disposition = PingClassifier.disposition(for: PingResponse(statusCode: 307, body: ""))
+
+        guard case .permanentFailure(let reason) = disposition else {
+            Issue.record("expected .permanentFailure for a 307, got \(disposition)")
+            return
+        }
+        #expect(reason.contains("307"))
+    }
 }
