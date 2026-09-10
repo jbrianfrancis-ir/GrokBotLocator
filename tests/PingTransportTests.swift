@@ -264,4 +264,29 @@ struct PingTransportTests {
         #expect(value == Self.credentials.senderKey)
         #expect(!value.hasPrefix("Bearer "))
     }
+    /// Fails CLOSED on credentials that cannot authenticate. Measured by the security review:
+    /// CFNetwork DROPS a header whose name or value contains a control character, so without this
+    /// guard the ping left with the coordinates and no credential header at all -- and a permissive
+    /// endpoint would accept it and report "Sent". ARCHITECTURE forbids an empty key on the wire.
+    @Test(arguments: [
+        WebhookCredentials(
+            url: URL(string: "https://example.invalid/webhook")!, senderKey: "",
+            headerName: "X-Test-Key"),
+        WebhookCredentials(
+            url: URL(string: "https://example.invalid/webhook")!, senderKey: "k", headerName: ""),
+        WebhookCredentials(
+            url: URL(string: "http://example.invalid/webhook")!, senderKey: "k",
+            headerName: "X-Test-Key"),
+    ])
+    func unusableCredentialsAreRefusedBeforeAnythingIsSent(credentials: WebhookCredentials) async {
+        StubURLProtocol.reset()
+        StubURLProtocol.stub = .init(statusCode: 200, body: Data())
+
+        await #expect(throws: PingTransportError.incompleteCredentials) {
+            try await makeTransport().send(Self.payload, using: credentials)
+        }
+        #expect(
+            StubURLProtocol.capturedRequest == nil,
+            "nothing may reach the network when the credentials cannot authenticate")
+    }
 }
