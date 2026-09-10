@@ -3,7 +3,7 @@
 
 ## Position
 Phase: 1 of 4 (Foundation & design system) | Plans: 12/12 | Status: verifying
-Last: 2026-09-10 — phase 1: smoke PASS, 0 gaps, 2 defects fixed. Portrait lock, D-10 relaunch, AX5 reflow proven on simulator; BOTH device-only checks closed on an iPhone 16 Pro Max (real keychain-access-groups entitlement, clean strings).
+Last: 2026-09-10 — phase 1: smoke PASS, 0 gaps, 2 defects fixed. Portrait lock, D-10 relaunch, AX5 reflow proven on simulator; BOTH device-only checks closed on an iPhone 16 Pro Max (real entitlement, clean strings, SecItem save+read confirmed, D-10 proven on hardware).
 Next: /flow-verify 1
 
 ## Gate
