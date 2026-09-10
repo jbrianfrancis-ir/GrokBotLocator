@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import Synchronization
 
 /// The rule for exactly one thing: did the network just become reachable. A pure value type on
 /// purpose -- REQ-05 names "connectivity returning while it is alive" as a drain opportunity, and
@@ -44,30 +45,25 @@ protocol ConnectivityObserving: Sendable {
 /// same `ConnectivityEdge`, so it is lock-guarded here rather than left `nonisolated(unsafe)`.
 /// LEARNINGS.md: a fake with the same two-writer shape but no lock hung phase 02's suite
 /// intermittently -- the fix there was a lock, not fewer writers, and the same fix applies here.
+///
+/// The guard is `Synchronization.Mutex`, not a hand-rolled `NSLock` + `@unchecked Sendable` box:
+/// Swift 6 strict concurrency refuses to let an escaping closure mutate a captured local `var`
+/// (it cannot see that a lock serializes every access to it), and wrapping that var in a type
+/// whose Sendability is merely asserted would silence the diagnostic rather than answer it.
+/// `Mutex<ConnectivityEdge>` is itself genuinely `Sendable` -- the compiler, not a promise on our
+/// part, is what proves `edgeMutex.withLock { ... }` is safe to call from `pathUpdateHandler`.
 final class NWPathMonitorConnectivity: ConnectivityObserving, @unchecked Sendable {
     private let monitorQueue = DispatchQueue(label: "connectivity")
-
-    /// A `let`-captured box around the mutable `ConnectivityEdge`, rather than a `var` captured
-    /// directly by `pathUpdateHandler`: Swift 6 strict concurrency refuses to let an escaping
-    /// closure mutate a captured local `var` (it cannot see that the lock serializes every
-    /// access), so the var and its lock both live inside this `@unchecked Sendable` box instead.
-    private final class LockedEdge: @unchecked Sendable {
-        private let lock = NSLock()
-        private var edge = ConnectivityEdge()
-
-        func observe(satisfied: Bool) -> Bool {
-            lock.withLock { edge.observe(satisfied: satisfied) }
-        }
-    }
 
     func onlineEdges() -> AsyncStream<Void> {
         AsyncStream { continuation in
             let monitor = NWPathMonitor()
-            let lockedEdge = LockedEdge()
+            let edgeMutex = Mutex(ConnectivityEdge())
 
             monitor.pathUpdateHandler = { path in
                 let satisfied = path.status == .satisfied
-                if lockedEdge.observe(satisfied: satisfied) {
+                let firedEdge = edgeMutex.withLock { $0.observe(satisfied: satisfied) }
+                if firedEdge {
                     continuation.yield()
                 }
             }
