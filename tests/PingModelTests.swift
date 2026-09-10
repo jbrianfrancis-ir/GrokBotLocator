@@ -210,6 +210,134 @@ struct PingModelTests {
     }
 
     @Test
+    func aRetryableAttemptRecordsAQueuedRowCarryingItsReason() async {
+        let fakes = Fakes()
+        let model = fakes.makeModel()
+        let queuedID = UUID()
+        fakes.sender.attemptToReturn = PingAttempt(
+            fix: Self.fixtureFix,
+            disposition: .retryable(
+                reason: "The webhook is unavailable (HTTP 503). Try again in a moment."),
+            statusCode: 503, responseBody: nil, queuedID: queuedID)
+
+        await model.ping()
+
+        #expect(model.log.entries.count == 1)
+        let entry = model.log.entries[0]
+        #expect(entry.outcome == .queued)
+        #expect(entry.reason == "The webhook is unavailable (HTTP 503). Try again in a moment.")
+        #expect(entry.id == queuedID)
+    }
+
+    @Test
+    func aQueuedRowFlipsToSentWhenTheDrainReportsIt() async {
+        let fakes = Fakes()
+        let model = fakes.makeModel()
+        let queuedID = UUID()
+        fakes.sender.attemptToReturn = PingAttempt(
+            fix: Self.fixtureFix,
+            disposition: .retryable(reason: "The webhook is unavailable (HTTP 503)."),
+            statusCode: 503, responseBody: nil, queuedID: queuedID)
+        await model.ping()
+
+        model.apply(
+            [
+                PingDeliveryUpdate(
+                    id: queuedID, timestamp: Self.fixtureFix.timestamp,
+                    latitude: Self.fixtureFix.latitude, longitude: Self.fixtureFix.longitude,
+                    label: "Home", outcome: .sent, reason: nil)
+            ], announcing: true)
+
+        #expect(model.log.entries.count == 1)
+        #expect(model.log.entries[0].outcome == .sent)
+        #expect(model.log.entries[0].reason == nil)
+        #expect(model.lastAttempt?.outcome == .sent)
+    }
+
+    @Test
+    func aDeliveredAttemptStillHasNoQueuedIdentity() async {
+        let fakes = Fakes()
+        let model = fakes.makeModel()
+        let queuedID = UUID()
+        fakes.sender.attemptToReturn = PingAttempt(
+            fix: Self.fixtureFix, disposition: .sent, statusCode: 200, responseBody: nil)
+
+        await model.ping()
+
+        #expect(model.log.entries.count == 1)
+        #expect(model.log.entries[0].id != queuedID)
+        #expect(model.log.entries[0].outcome == .sent)
+    }
+
+    @Test
+    func applyingSilentlyLeavesLastAttemptUntouched() async {
+        let fakes = Fakes()
+        let model = fakes.makeModel()
+        #expect(model.lastAttempt == nil)
+
+        model.apply(
+            [
+                PingDeliveryUpdate(
+                    id: UUID(), timestamp: Self.fixtureFix.timestamp,
+                    latitude: Self.fixtureFix.latitude, longitude: Self.fixtureFix.longitude,
+                    label: "Home", outcome: .queued, reason: "Waiting to send."),
+                PingDeliveryUpdate(
+                    id: UUID(), timestamp: Self.fixtureFix.timestamp,
+                    latitude: Self.fixtureFix.latitude, longitude: Self.fixtureFix.longitude,
+                    label: "Home", outcome: .failed, reason: "Gave up after 5 attempts."),
+            ], announcing: false)
+
+        #expect(model.log.entries.count == 2)
+        #expect(model.lastAttempt == nil)
+
+        fakes.sender.attemptToReturn = PingAttempt(
+            fix: Self.fixtureFix, disposition: .sent, statusCode: 200, responseBody: nil)
+        await model.ping()
+        let afterPing = model.lastAttempt
+        #expect(afterPing != nil)
+
+        model.apply(
+            [
+                PingDeliveryUpdate(
+                    id: UUID(), timestamp: Self.fixtureFix.timestamp,
+                    latitude: Self.fixtureFix.latitude, longitude: Self.fixtureFix.longitude,
+                    label: "Home", outcome: .failed, reason: "Gave up after 5 attempts.")
+            ], announcing: false)
+
+        #expect(model.lastAttempt == afterPing)
+        #expect(model.lastAttempt?.sequence == afterPing?.sequence)
+    }
+
+    @Test
+    func anEmptyUpdateListAnnouncesNothing() async {
+        let fakes = Fakes()
+        let model = fakes.makeModel()
+
+        model.apply([], announcing: true)
+
+        #expect(model.lastAttempt == nil)
+        #expect(model.log.entries.isEmpty)
+    }
+
+    @Test
+    func showNoticePutsASentenceOnScreenWithoutTouchingTheAuthorizationNotice() async {
+        let fakes = Fakes()
+        let model = fakes.makeModel()
+        fakes.fixes.notice = "Manual pings work now."
+        await model.refreshAuthorizationNotice()
+        #expect(model.authorizationNotice == "Manual pings work now.")
+
+        model.show(notice: "Add your webhook URL and sender key in Settings — 2 ping(s) are waiting to be sent.")
+
+        #expect(
+            model.guidance
+                == "Add your webhook URL and sender key in Settings — 2 ping(s) are waiting to be sent."
+        )
+        #expect(model.authorizationNotice == "Manual pings work now.")
+        #expect(model.log.entries.isEmpty)
+    }
+
+    @Test
     func anAttemptWithNoFixRecordsNoEntryAndSetsGuidanceInstead() async {
         let fakes = Fakes()
         let model = fakes.makeModel()
