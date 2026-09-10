@@ -44,13 +44,14 @@ struct LocationAuthorizationTests {
 
     @Test
     func fixBecomesAPayloadCarryingItsOwnFieldsAndTheCallersLabel() {
+        let fixTimestamp = Date(timeIntervalSince1970: 1_700_000_000)
         let fix = LocationFix(
-            latitude: 40.77465, longitude: 17.23107, accuracyMetres: 12.5, timestamp: .init())
+            latitude: 40.77465, longitude: 17.23107, accuracyMetres: 12.5, timestamp: fixTimestamp)
         #expect(
             fix.payload(label: "Gallipoli")
                 == PingPayload(
                     latitude: 40.77465, longitude: 17.23107, accuracyMetres: 12.5,
-                    label: "Gallipoli"))
+                    label: "Gallipoli", capturedAt: fixTimestamp))
         #expect(fix.payload(label: "").label == "")
     }
 

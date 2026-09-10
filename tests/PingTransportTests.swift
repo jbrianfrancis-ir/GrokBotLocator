@@ -106,7 +106,8 @@ struct PingTransportTests {
         headerName: "X-Test-Key")
 
     private static let payload = PingPayload(
-        latitude: 40.77465, longitude: 17.23107, accuracyMetres: 12.5, label: "Gallipoli")
+        latitude: 40.77465, longitude: 17.23107, accuracyMetres: 12.5, label: "Gallipoli",
+        capturedAt: Date(timeIntervalSince1970: 1_700_000_000))
 
     private func makeTransport() -> URLSessionPingTransport {
         let configuration = URLSessionConfiguration.ephemeral
