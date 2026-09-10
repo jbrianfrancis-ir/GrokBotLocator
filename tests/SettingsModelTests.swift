@@ -17,24 +17,37 @@ struct SettingsModelTests {
         var stored: WebhookCredentials?
         private(set) var savedCredentials: WebhookCredentials?
         private(set) var saveCallCount = 0
+        /// Set to make the Keychain fail. Without these, every one of `SettingsModel`'s Keychain
+        /// failure arms was unreachable by this suite, and a mutation turning "could not save"
+        /// into `.saved` passed the whole gate -- the user told "Saved" while nothing was stored.
+        var loadErrorToThrow: Error?
+        var saveErrorToThrow: Error?
+        var clearErrorToThrow: Error?
 
         init(stored: WebhookCredentials? = nil) {
             self.stored = stored
         }
 
-        func load() throws -> WebhookCredentials? { stored }
+        func load() throws -> WebhookCredentials? {
+            if let loadErrorToThrow { throw loadErrorToThrow }
+            return stored
+        }
 
         func save(_ credentials: WebhookCredentials) throws {
             saveCallCount += 1
+            if let saveErrorToThrow { throw saveErrorToThrow }
             savedCredentials = credentials
             stored = credentials
         }
 
         func clear() throws {
+            if let clearErrorToThrow { throw clearErrorToThrow }
             stored = nil
             savedCredentials = nil
         }
     }
+
+    private struct KeychainFailure: Error {}
 
     /// Replays a caller-set `PingAttempt` and, when `suspends` is true, parks inside
     /// `send(label:)` until the test calls `release()` -- so the in-flight window is directly
@@ -176,6 +189,111 @@ struct SettingsModelTests {
             fake.savedCredentials
                 == WebhookCredentials(
                     url: Self.fixtureURL, senderKey: Self.fixtureKey, headerName: Self.fixtureHeader))
+    }
+
+    // MARK: Keychain failures -- every one of these arms was unreachable by this suite
+
+    /// The defect this pins: a mutation turning this arm's `.error` into `.saved` passed the
+    /// entire gate. The user would be told "Saved" while nothing reached the Keychain, which is
+    /// the inverse of ARCHITECTURE's fail-fast rule -- and they would then ping with credentials
+    /// the app does not have.
+    @Test
+    func aKeychainWriteFailureIsReportedAndNeverLooksLikeSuccess() {
+        let fake = FakeCredentialStore()
+        fake.saveErrorToThrow = KeychainFailure()
+        let model = SettingsModel(store: fake)
+        model.urlText = Self.fixtureURL.absoluteString
+        model.senderKey = Self.fixtureKey
+        model.headerName = Self.fixtureHeader
+
+        model.save()
+
+        #expect(model.status != .saved)
+        guard case .error(let message) = model.status else {
+            Issue.record("expected .error, got \(model.status)")
+            return
+        }
+        #expect(message.contains("Keychain"))
+        #expect(!model.hasStoredKey, "a failed write must not leave the key-saved indicator on")
+    }
+
+    /// `save()` re-reads the stored key when the field was left untouched. If that read fails the
+    /// model must say so rather than write an empty key over a good one.
+    @Test
+    func aFailedRereadOfTheStoredKeyIsReportedAndWritesNothing() {
+        let fake = FakeCredentialStore(
+            stored: WebhookCredentials(
+                url: Self.fixtureURL, senderKey: Self.fixtureKey, headerName: Self.fixtureHeader))
+        let model = SettingsModel(store: fake)
+        model.load()
+        fake.loadErrorToThrow = KeychainFailure()
+        model.urlText = Self.fixtureURL.absoluteString
+        model.senderKey = ""
+
+        model.save()
+
+        guard case .error(let message) = model.status else {
+            Issue.record("expected .error, got \(model.status)")
+            return
+        }
+        #expect(message.contains("Keychain"))
+        #expect(fake.saveCallCount == 0, "nothing may be written when the re-read failed")
+    }
+
+    /// A stored key that reads back empty is not a usable credential: say the key is missing
+    /// rather than silently saving an empty one.
+    @Test
+    func anEmptyStoredKeyIsReportedAsMissingAndWritesNothing() {
+        let fake = FakeCredentialStore(
+            stored: WebhookCredentials(
+                url: Self.fixtureURL, senderKey: "", headerName: Self.fixtureHeader))
+        let model = SettingsModel(store: fake)
+        model.load()
+        model.urlText = Self.fixtureURL.absoluteString
+        model.senderKey = ""
+
+        model.save()
+
+        guard case .error(let message) = model.status else {
+            Issue.record("expected .error, got \(model.status)")
+            return
+        }
+        #expect(message.lowercased().contains("sender key"))
+        #expect(fake.saveCallCount == 0)
+    }
+
+    @Test
+    func aKeychainLoadFailureIsReportedRatherThanSwallowed() {
+        let fake = FakeCredentialStore()
+        fake.loadErrorToThrow = KeychainFailure()
+        let model = SettingsModel(store: fake)
+
+        model.load()
+
+        guard case .error(let message) = model.status else {
+            Issue.record("expected .error, got \(model.status)")
+            return
+        }
+        #expect(message.contains("Keychain"))
+    }
+
+    @Test
+    func aKeychainClearFailureIsReportedAndLeavesTheFieldsAlone() {
+        let fake = FakeCredentialStore(
+            stored: WebhookCredentials(
+                url: Self.fixtureURL, senderKey: Self.fixtureKey, headerName: Self.fixtureHeader))
+        let model = SettingsModel(store: fake)
+        model.load()
+        fake.clearErrorToThrow = KeychainFailure()
+
+        model.clear()
+
+        guard case .error(let message) = model.status else {
+            Issue.record("expected .error, got \(model.status)")
+            return
+        }
+        #expect(message.contains("Keychain"))
+        #expect(model.hasStoredKey, "a failed clear must not pretend the key is gone")
     }
 
     @Test
