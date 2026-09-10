@@ -41,14 +41,9 @@ struct PingHomeView: View {
                     .foregroundStyle(DSPalette.body.foreground(for: colorScheme))
                     .accessibilityAddTraits(.isHeader)
 
-                // DESIGN.md's only Input component. Not secure and no saved indicator: a place
-                // name is not a credential, so it is shown and edited like ordinary text.
-                CredentialField(
-                    label: "Ping label",
-                    text: $model.label,
-                    footnote: "Sent with every ping and remembered between pings."
-                )
-
+                // Sentences first, directly under the title, rather than third group down: a
+                // sentence the user never scrolls to is the inverse of the toast DESIGN.md bans
+                // -- kept, but never seen.
                 if let notice = model.authorizationNotice {
                     noticeBlock(
                         symbolName: "info.circle.fill", text: notice, pair: DSPalette.pending)
@@ -59,6 +54,14 @@ struct PingHomeView: View {
                         symbolName: "exclamationmark.triangle.fill", text: guidance,
                         pair: DSPalette.failure)
                 }
+
+                // DESIGN.md's only Input component. Not secure and no saved indicator: a place
+                // name is not a credential, so it is shown and edited like ordinary text.
+                CredentialField(
+                    label: "Ping label",
+                    text: $model.label,
+                    footnote: "Sent with every ping and remembered between pings."
+                )
 
                 history
             }
@@ -71,10 +74,10 @@ struct PingHomeView: View {
         .toolbar(.hidden, for: .navigationBar)
         .task { await model.refreshAuthorizationNotice() }
         // DESIGN.md: the ping outcome is announced, not just rendered.
-        .onChange(of: model.lastAnnouncement) { _, new in
-            // Keyed off the whole announcement, not its text: two pings with the same outcome
-            // carry the same sentence, and keying off the string left the second one silent.
-            if let new { AccessibilityNotification.Announcement(new.text).post() }
+        .onChange(of: model.lastAttempt) { _, new in
+            // Keyed off the whole attempt, not its sentence: two pings with the same outcome
+            // carry the same words, and keying off the string left the second one silent.
+            if let new { AccessibilityNotification.Announcement(new.spoken).post() }
         }
     }
 
@@ -104,14 +107,46 @@ struct PingHomeView: View {
     /// opaque `DSPalette` pair and never a material of any kind: DESIGN.md bars Liquid Glass from
     /// behind the primary action, so the chrome modifier stays on the bar above and off this.
     private var actionBar: some View {
-        PingButton(
-            title: "I'm here", inFlightTitle: "Pinging…", isInFlight: model.isInFlight
-        ) {
-            Task { await model.ping() }
+        VStack(alignment: .leading, spacing: DSMetrics.spacingBase) {
+            // What the last tap did, where the thumb and the eye already are. Before this, the
+            // only change in the bottom third was the button's label reverting -- identical to a
+            // tap that did nothing -- while the outcome rendered at the far end of the screen, on
+            // the 401 path as a history row only. Deliberately the badge ALONE, not the reason:
+            // at AX5 a wrapped failure sentence runs 3-4 lines at ~67pt each and would eat the
+            // budget the 88pt action floor needs. The sentence is first in the content instead.
+            if let attempt = model.lastAttempt {
+                lastAttemptBadge(for: attempt.outcome)
+            }
+
+            PingButton(
+                title: "I'm here", inFlightTitle: "Pinging…", isInFlight: model.isInFlight
+            ) {
+                Task { await model.ping() }
+            }
         }
         .padding(DSMetrics.screenMargin)
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(DSPalette.body.background(for: colorScheme))
+    }
+
+    /// Symbol + word on the outcome's own opaque fill. Takes all three from `PingOutcome`, which
+    /// supplies them together precisely so a colour can never be read without its symbol and word
+    /// (DESIGN.md: never state by colour alone). Shares the shape of `PingOutcomeRow`'s badge --
+    /// promoting one `DSStatusBadge` for both, plus `SettingsView`'s, is a recorded open item.
+    private func lastAttemptBadge(for outcome: PingOutcome) -> some View {
+        HStack(spacing: DSMetrics.spacingBase) {
+            Image(systemName: outcome.symbolName)
+                .accessibilityHidden(true)
+            Text(outcome.word)
+                .dsFont(.secondary)
+        }
+        .foregroundStyle(outcome.pair.foreground(for: colorScheme))
+        .padding(.horizontal, DSMetrics.spacingBase)
+        .padding(.vertical, DSMetrics.spacingBase / 2)
+        .background(outcome.pair.background(for: colorScheme))
+        .clipShape(Capsule())
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityLabel("Last ping: \(outcome.word)")
     }
 
     /// Symbol + sentence + colour on the pair's own opaque fill -- never colour alone, and on

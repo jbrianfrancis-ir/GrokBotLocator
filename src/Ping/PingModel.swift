@@ -1,13 +1,22 @@
 import Foundation
 import Observation
 
-/// One announcement of a ping outcome: the sentence, plus a sequence number that makes two
-/// identical outcomes distinct values. `PingHomeView` announces on change, so without the
-/// sequence a second "Ping sent." -- the same string -- would not register as a change and
-/// would never be spoken.
-struct PingAnnouncement: Equatable, Sendable {
+/// What the last tap did: one value meaning one attempt, carrying the outcome, its reason, and a
+/// sequence number. One property rather than several, because the outcome has to reach three
+/// places that must never disagree -- the badge pinned by the button, the spoken announcement,
+/// and (on the no-fix path) the sentence in the content. It also makes two identical outcomes
+/// distinct values: keyed off the text alone, a second "Ping sent." was not a change and was
+/// never spoken.
+struct PingAttemptFeedback: Equatable, Sendable {
     let sequence: Int
-    let text: String
+    let outcome: PingOutcome
+    let reason: String?
+
+    /// What VoiceOver says. Carries the reason, because "Ping failed." alone tells the user
+    /// nothing about what to do next (DESIGN.md).
+    var spoken: String {
+        outcome == .sent ? "Ping sent." : "Ping failed. " + (reason ?? "")
+    }
 }
 
 /// The home screen's state machine (02-09-PLAN.md): label, in-flight, history, guidance,
@@ -37,13 +46,12 @@ final class PingModel {
     private(set) var log = PingHistoryLog()
     private(set) var guidance: String?
     private(set) var authorizationNotice: String?
-    /// Identity-bearing, NOT just the text: the view announces on change, and two pings with
-    /// the same outcome produce the same sentence. Keying off the text alone meant the second
-    /// identical outcome was never spoken -- silent VoiceOver on the app's primary action, which
-    /// DESIGN.md ("the ping outcome is announced, not just rendered") forbids. `sequence` makes
-    /// every outcome a distinct value even when the words repeat.
-    private(set) var lastAnnouncement: PingAnnouncement?
-    private var announcementSequence = 0
+    /// The single "what the last tap did" value -- see `PingAttemptFeedback`. The view renders it
+    /// as a badge inside the bottom inset beside the button AND announces it; before that, the
+    /// only change in the bottom third was the button's label reverting, which is pixel-identical
+    /// to a tap that did nothing.
+    private(set) var lastAttempt: PingAttemptFeedback?
+    private var attemptSequence = 0
 
     /// Argument labels and order are pinned -- 02-13's call site writes them verbatim.
     init(sender: PingSending, labelStore: PingLabelStore, fixes: LocationFixProvider) {
@@ -90,7 +98,6 @@ final class PingModel {
             outcome = .failed
             reason = r
         }
-        let announcement = outcome == .sent ? "Ping sent." : "Ping failed. " + (reason ?? "")
 
         if let fix = attempt.fix {
             log.record(
@@ -112,7 +119,8 @@ final class PingModel {
             self.guidance = nil
         }
 
-        announcementSequence += 1
-        lastAnnouncement = PingAnnouncement(sequence: announcementSequence, text: announcement)
+        attemptSequence += 1
+        lastAttempt = PingAttemptFeedback(
+            sequence: attemptSequence, outcome: outcome, reason: reason)
     }
 }

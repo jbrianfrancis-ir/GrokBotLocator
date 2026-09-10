@@ -276,14 +276,14 @@ struct PingModelTests {
         fakes.sender.attemptToReturn = PingAttempt(
             fix: Self.fixtureFix, disposition: .sent, statusCode: 200, responseBody: nil)
         await model.ping()
-        let sentAnnouncement = model.lastAnnouncement
+        let sentAnnouncement = model.lastAttempt
         #expect(sentAnnouncement != nil)
 
         fakes.sender.attemptToReturn = PingAttempt(
             fix: Self.fixtureFix, disposition: .permanentFailure(reason: "nope"), statusCode: 403,
             responseBody: nil)
         await model.ping()
-        let failedAnnouncement = model.lastAnnouncement
+        let failedAnnouncement = model.lastAttempt
 
         #expect(failedAnnouncement != nil)
         #expect(sentAnnouncement != failedAnnouncement)
@@ -303,14 +303,14 @@ struct PingModelTests {
             fix: Self.fixtureFix, disposition: .sent, statusCode: 200, responseBody: nil)
 
         await model.ping()
-        let first = model.lastAnnouncement
+        let first = model.lastAttempt
         await model.ping()
-        let second = model.lastAnnouncement
+        let second = model.lastAttempt
 
         #expect(first != nil)
         #expect(second != nil)
         // Same words -- that is the point -- but distinct values, so the view announces both.
-        #expect(first?.text == second?.text)
+        #expect(first?.spoken == second?.spoken)
         #expect(first != second)
     }
 
@@ -325,11 +325,11 @@ struct PingModelTests {
             statusCode: 401, responseBody: nil)
 
         await model.ping()
-        let first = model.lastAnnouncement
+        let first = model.lastAttempt
         await model.ping()
-        let second = model.lastAnnouncement
+        let second = model.lastAttempt
 
-        #expect(first?.text == second?.text)
+        #expect(first?.spoken == second?.spoken)
         #expect(first != second)
     }
 
@@ -422,8 +422,42 @@ struct PingModelTests {
 
         await model.ping()
 
-        let spoken = model.lastAnnouncement?.text
+        let spoken = model.lastAttempt?.spoken
         #expect(spoken?.contains("Check the sender key in Settings.") == true)
+    }
+
+    /// S1: the badge pinned beside the button reads its outcome from this one property, so the
+    /// thing the user sees in the bottom third and the thing VoiceOver says cannot disagree. Before
+    /// the first tap there is nothing to report and nothing is drawn.
+    @Test
+    func thereIsNoLastAttemptBeforeTheFirstTap() {
+        let fakes = Fakes()
+        let model = fakes.makeModel()
+
+        #expect(model.lastAttempt == nil)
+    }
+
+    /// And it carries the outcome itself, not just a sentence -- the badge needs the symbol, word
+    /// and colour triple that `PingOutcome` supplies together.
+    @Test
+    func theLastAttemptCarriesItsOutcomeAndReason() async {
+        let fakes = Fakes()
+        let model = fakes.makeModel()
+        fakes.sender.attemptToReturn = PingAttempt(
+            fix: Self.fixtureFix, disposition: .permanentFailure(reason: "Check the key."),
+            statusCode: 401, responseBody: nil)
+
+        await model.ping()
+
+        #expect(model.lastAttempt?.outcome == .failed)
+        #expect(model.lastAttempt?.reason == "Check the key.")
+
+        fakes.sender.attemptToReturn = PingAttempt(
+            fix: Self.fixtureFix, disposition: .sent, statusCode: 200, responseBody: nil)
+        await model.ping()
+
+        #expect(model.lastAttempt?.outcome == .sent)
+        #expect(model.lastAttempt?.reason == nil)
     }
 
     // MARK: Authorization notice (REQ-10)
