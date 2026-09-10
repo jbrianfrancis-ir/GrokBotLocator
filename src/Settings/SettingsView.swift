@@ -5,10 +5,10 @@ import SwiftUI
 /// `CredentialField`s bind straight to `SettingsModel`; the sender key never carries a stored
 /// value back into the view (D-10), only `model.hasStoredKey` does. The save action sits in
 /// the bottom third for one-handed reach: a `GeometryReader` gives the content a `minHeight`
-/// (never a fixed height) so a trailing `Spacer` pushes the outcome/save/clear group down when
-/// the screen has room, while AX5's taller content simply scrolls past that minimum. No glass
-/// anywhere here -- every fill is an opaque `DSPalette` pair, matching CredentialField and
-/// PingButton; navigation chrome is the system's own and needs no code from this file.
+/// (never a fixed height) so a trailing `Spacer` pushes the outcome/save/clear/test group down
+/// when the screen has room, while AX5's taller content simply scrolls past that minimum. No
+/// glass anywhere here -- every fill is an opaque `DSPalette` pair, matching CredentialField
+/// and PingButton; navigation chrome is the system's own and needs no code from this file.
 struct SettingsView: View {
     @Bindable var model: SettingsModel
 
@@ -35,7 +35,9 @@ struct SettingsView: View {
                             label: "Sender key",
                             text: $model.senderKey,
                             isSecure: true,
-                            savedIndicator: model.hasStoredKey ? "Key saved" : nil
+                            savedIndicator: model.hasStoredKey ? "Key saved" : nil,
+                            footnote:
+                                "Type the whole header value the routine expects, for example Bearer abc123 — it is sent exactly as typed."
                         )
 
                         CredentialField(
@@ -72,6 +74,23 @@ struct SettingsView: View {
                         }
                         .foregroundStyle(DSPalette.body.foreground(for: colorScheme))
                         .accessibilityLabel("Clear settings")
+
+                        // Same inside-the-label frame and content shape as Clear, for the reason
+                        // the comment above gives. The word changes while the test is in flight:
+                        // a disabled button whose label never moves reads as a dead control.
+                        Button {
+                            Task { await model.testConnection() }
+                        } label: {
+                            Text(model.isTesting ? "Testing…" : "Test connection")
+                                .dsFont(.body)
+                                .frame(maxWidth: .infinity, minHeight: DSMetrics.minTapTarget)
+                                .contentShape(Rectangle())
+                        }
+                        .foregroundStyle(DSPalette.body.foreground(for: colorScheme))
+                        .accessibilityLabel("Test connection")
+                        .disabled(model.isTesting)
+
+                        connectionReportView
                     }
                 }
                 .padding(DSMetrics.screenMargin)
@@ -93,6 +112,43 @@ struct SettingsView: View {
             statusBadge(symbolName: "checkmark.circle.fill", text: "Saved", pair: DSPalette.success)
         case .error(let message):
             statusBadge(symbolName: "exclamationmark.triangle.fill", text: message, pair: DSPalette.failure)
+        }
+    }
+
+    /// REQ-11: what the webhook itself answered, on screen. The headline goes through the same
+    /// symbol + word + colour badge as a save outcome; below it sit the exact status code and
+    /// the exact body. Never an `alert` and never a toast (DESIGN.md), and deliberately no
+    /// `lineLimit` -- at AX5 a 401's body has to wrap, not clip. Renders nothing until a test
+    /// has run. Nothing here reads `model.senderKey` (D-10).
+    @ViewBuilder
+    private var connectionReportView: some View {
+        if let report = model.connectionReport {
+            VStack(alignment: .leading, spacing: DSMetrics.spacingBase) {
+                statusBadge(
+                    symbolName: report.succeeded
+                        ? "checkmark.circle.fill" : "exclamationmark.triangle.fill",
+                    text: report.headline,
+                    pair: report.succeeded ? DSPalette.success : DSPalette.failure)
+
+                VStack(alignment: .leading, spacing: DSMetrics.spacingBase) {
+                    if let code = report.statusCode {
+                        Text("HTTP \(code)")
+                            .dsFont(.secondary)
+                    }
+                    if let body = report.responseBody {
+                        // Verbatim. An empty body is a fact about the response, so it is named
+                        // as a rendering note -- never substituted for a value that didn't come.
+                        Text(body.isEmpty ? "(empty response body)" : body)
+                            .dsFont(.secondary)
+                            .textSelection(.enabled)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .foregroundStyle(DSPalette.secondary.foreground(for: colorScheme))
+                // One announcement for the whole answer: VoiceOver reads the code and the body
+                // together, the way a sighted user reads the two lines.
+                .accessibilityElement(children: .combine)
+            }
         }
     }
 
