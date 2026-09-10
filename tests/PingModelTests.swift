@@ -191,8 +191,10 @@ struct PingModelTests {
     }
 
     @Test
-    func aRetryableFailureWithAFixAlsoRecordsOneFailedEntry() async {
-        // Documented phase-02 mapping: phase 03 (REQ-05) turns this into `.queued`.
+    func aRetryableFailureWithAFixRecordsOneQueuedEntry() async {
+        // The phase-02 mapping (retryable -> .failed) is now live as phase 03 (REQ-05) intended:
+        // the sink has already accepted the payload by the time this arm is reached, so it reads
+        // Queued, not Failed.
         let fakes = Fakes()
         let model = fakes.makeModel()
         fakes.sender.attemptToReturn = PingAttempt(
@@ -203,7 +205,7 @@ struct PingModelTests {
         await model.ping()
 
         #expect(model.log.entries.count == 1)
-        #expect(model.log.entries[0].outcome == .failed)
+        #expect(model.log.entries[0].outcome == .queued)
         #expect(model.log.entries[0].reason == "The webhook is unavailable (HTTP 503).")
     }
 
