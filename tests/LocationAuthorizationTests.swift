@@ -53,6 +53,9 @@ struct LocationAuthorizationTests {
                     latitude: 40.77465, longitude: 17.23107, accuracyMetres: 12.5,
                     label: "Gallipoli", capturedAt: fixTimestamp))
         #expect(fix.payload(label: "").label == "")
+        // Named claim, not just whole-value equality: the bridge carries the fix's own
+        // timestamp specifically into `capturedAt`.
+        #expect(fix.payload(label: "Gallipoli").capturedAt == fix.timestamp)
     }
 
     @Test(arguments: [
