@@ -14,8 +14,14 @@ fi
 
 echo "==> type-scale guard: no sub-17pt font literal or raw system-size call outside DSTypography"
 EXEMPT="src/Core/DesignSystem/DSTypography.swift"
+# `.system(size:` is matched on its OWN line, not only after `.font(`: grep is line-based, so
+# `Text("x").font(\n    .system(size: 20)\n)` walked straight past the anchored pattern. Same for
+# `Font.system(size:)` and `UIFont.systemFont(ofSize:)`, neither of which mentions `.font(`.
 GUARD_HITS=$(grep -rnE \
-    -e '\.font\([[:space:]]*\.system\([[:space:]]*size:' \
+    -e '\.system\([[:space:]]*size:' \
+    -e 'Font\.system\(' \
+    -e 'UIFont\.systemFont\(' \
+    -e 'ofSize:[[:space:]]*-?([0-9]|1[0-6])(\.[0-9]+)?\b' \
     -e 'size:[[:space:]]*-?([0-9]|1[0-6])(\.[0-9]+)?\b' \
     src --include='*.swift' 2>/dev/null | grep -v "^${EXEMPT}:" || true)
 
@@ -28,8 +34,10 @@ fi
 echo "==> location guard: no requestAlwaysAuthorization/startUpdatingLocation/allowsBackgroundLocationUpdates, and CLLocationManager/CLLocationUpdate confined to CoreLocationFixProvider.swift"
 LOCATION_PROVIDER="src/Core/Location/CoreLocationFixProvider.swift"
 
+# `CLBackgroundActivitySession` is the modern way to keep location alive in the background -- it
+# is the ARCHITECTURE-Forbidden behaviour under a name none of the other patterns mention.
 FORBIDDEN_API_HITS=$(grep -rnE \
-    'requestAlwaysAuthorization|startUpdatingLocation|allowsBackgroundLocationUpdates' \
+    'requestAlwaysAuthorization|startUpdatingLocation|allowsBackgroundLocationUpdates|CLBackgroundActivitySession' \
     src --include='*.swift' 2>/dev/null || true)
 
 if [[ -n "$FORBIDDEN_API_HITS" ]]; then
@@ -60,11 +68,14 @@ LABEL_STORE="src/Ping/PingLabelStore.swift"
 # any line that mentions it: a line-level `grep -v` let a second real caller hide beside the
 # type name (`UserDefaultsPingLabelStore(); UserDefaults.standard.set(...)`), which the
 # phase-02 verifier caught by probing it live.
-USERDEFAULTS_HITS=$(grep -rn 'UserDefaults' src --include='*.swift' 2>/dev/null \
+# `@AppStorage` and `@SceneStorage` write to UserDefaults without containing the string, so the
+# credential this guard exists to keep OUT of UserDefaults could be declared in one line and the
+# guard would report nothing. ARCHITECTURE: credentials live only in the Keychain.
+USERDEFAULTS_HITS=$(grep -rnE 'UserDefaults|@AppStorage|@SceneStorage' src --include='*.swift' 2>/dev/null \
     | grep -v "^${LABEL_STORE}:" \
     | grep -vE '^[^:]*:[0-9]+: *(///|//|\*)' \
     | sed 's/UserDefaultsPingLabelStore//g' \
-    | grep 'UserDefaults' || true)
+    | grep -E 'UserDefaults|@AppStorage|@SceneStorage' || true)
 
 if [[ -n "$USERDEFAULTS_HITS" ]]; then
     echo "UserDefaults guard failed -- the UserDefaults API must appear only in ${LABEL_STORE} (a second caller is a decision, not a detail):" >&2
