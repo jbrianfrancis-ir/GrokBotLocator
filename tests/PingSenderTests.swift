@@ -70,15 +70,20 @@ struct PingSenderTests {
 
     /// A spy on the phase-03 queue seam: counts calls and keeps every payload and reason
     /// handed to it.
+    /// Defaults to `.queued` -- i.e. it stands in for phase 03's WORKING queue, so the tests
+    /// below assert what `PingSender` classifies rather than what today's no-op sink refuses.
+    /// `UnqueuedPingSink`'s own `.notQueued` behaviour is pinned separately.
     private final class FakeSink: PendingPingSink, @unchecked Sendable {
         private(set) var enqueueCallCount = 0
         private(set) var payloads: [PingPayload] = []
         private(set) var reasons: [String] = []
+        var outcomeToReturn: PingEnqueueOutcome = .queued
 
-        func enqueue(_ payload: PingPayload, reason: String) async {
+        func enqueue(_ payload: PingPayload, reason: String) async -> PingEnqueueOutcome {
             enqueueCallCount += 1
             payloads.append(payload)
             reasons.append(reason)
+            return outcomeToReturn
         }
     }
 
@@ -291,5 +296,61 @@ struct PingSenderTests {
                 break
             }
         }
+    }
+    // MARK: The queue seam can fail
+
+    /// Phase 03's sink writes a file, and a file write fails. If a failing enqueue still left the
+    /// disposition `.retryable`, `PingModel` would flip it to a durable-looking "Queued" and
+    /// reassure the user about a ping held nowhere -- worse than the honest failure, because they
+    /// stop worrying. A refused enqueue must therefore read as a permanent failure that says so.
+    @Test
+    func aRefusedEnqueueBecomesAPermanentFailureThatSaysSo() async {
+        let fakes = Fakes()
+        fakes.credentials.stored = Self.fixtureCredentials
+        fakes.fixes.fixToReturn = Self.fixtureFix
+        fakes.transport.responseToReturn = PingResponse(statusCode: 503, body: "try later")
+        fakes.sink.outcomeToReturn = .notQueued(
+            reason: "There is not enough storage left to save this ping for later.")
+
+        let attempt = await fakes.makeSender().send(label: "Gallipoli")
+
+        #expect(fakes.sink.enqueueCallCount == 1)
+        guard case .permanentFailure(let reason) = attempt.disposition else {
+            Issue.record("expected .permanentFailure, got \(attempt.disposition)")
+            return
+        }
+        // The sink's sentence reaches the user verbatim: it is the only layer that knows what
+        // actually went wrong and what is safe to show.
+        #expect(reason == "There is not enough storage left to save this ping for later.")
+        // The status and body still come back for REQ-11's sake.
+        #expect(attempt.statusCode == 503)
+        #expect(attempt.responseBody == "try later")
+    }
+
+    /// The happy path of the same seam: a retryable send whose enqueue succeeds stays retryable,
+    /// so phase 03 can flip exactly this arm to `.queued`.
+    @Test
+    func anAcceptedEnqueueLeavesTheDispositionRetryable() async {
+        let fakes = Fakes()
+        fakes.credentials.stored = Self.fixtureCredentials
+        fakes.fixes.fixToReturn = Self.fixtureFix
+        fakes.transport.responseToReturn = PingResponse(statusCode: 503, body: "try later")
+
+        let attempt = await fakes.makeSender().send(label: "Gallipoli")
+
+        #expect(fakes.sink.enqueueCallCount == 1)
+        if case .retryable = attempt.disposition {} else {
+            Issue.record("expected .retryable, got \(attempt.disposition)")
+        }
+    }
+    /// The invariant the return type now enforces: the sink phase 02 actually ships can never
+    /// report a ping as queued, because nothing durable exists to hold it. Before this was a
+    /// returned value, only a comment said so.
+    @Test
+    func theShippedSinkNeverClaimsToHaveQueuedAnything() async {
+        let outcome = await UnqueuedPingSink().enqueue(
+            Self.fixtureFix.payload(label: "Gallipoli"), reason: "Server said try later.")
+
+        #expect(outcome == .notQueued(reason: "Server said try later."))
     }
 }
