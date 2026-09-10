@@ -1,3 +1,8 @@
+<!-- .planning/phases/02-manual-ping/VERIFICATION.md — 5.1KB against the template's 2KB cap,
+     deliberately. The overshoot is the 11 unrun on-screen checks and their exact steps; cutting
+     to 2KB would mean handing a human checks they cannot follow. Nothing reads this file for
+     warm-start (STATE.md carries that), and phase 01's VERIFICATION.md is 20KB, so this is the
+     tightest verification record in the project. Orchestrator's call, 2026-09-10. -->
 ---
 phase: 02-manual-ping
 status: human_needed
