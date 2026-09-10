@@ -88,3 +88,106 @@ protocol PingQueueStoring: Sendable {
     /// survivors.
     func replace(with pings: [QueuedPing]) async throws
 }
+
+/// The one sanctioned coordinate store (D-12) -- an `actor` so two drain triggers (foreground
+/// connectivity edge, background refresh, manual launch) can never interleave a
+/// read-modify-write and race each other's view of the file.
+///
+/// Every write goes through `write(_:)`, which applies BOTH `.completeFileProtectionUnlessOpen`
+/// and `isExcludedFromBackup` every single time -- an atomic replace recreates the file, and a
+/// recreated file does not inherit the previous file's resource values, so re-asserting both on
+/// every write is the only way either protection reliably survives past the first write.
+actor FilePingQueueStore: PingQueueStoring {
+    /// The queue never grows past this many pending entries. Reaching it is `.full`, an honest
+    /// refusal -- never a silent eviction of the oldest ping, which is exactly the silent drop
+    /// ARCHITECTURE.md forbids.
+    static let capacity = 200
+
+    private static let fileName = "PingQueue.json"
+    private static let unreadableFileName = "PingQueue-unreadable.json"
+
+    private let directory: URL
+
+    private var fileURL: URL {
+        directory.appendingPathComponent(Self.fileName)
+    }
+
+    private var unreadableFileURL: URL {
+        directory.appendingPathComponent(Self.unreadableFileName)
+    }
+
+    /// The injectable directory is what makes every case here -- fresh store, full queue,
+    /// corrupt file -- testable against a throwaway directory, never against the app's real
+    /// queue.
+    init(directory: URL) {
+        self.directory = directory
+    }
+
+    /// The app's real queue location: Application Support, created if it does not exist yet.
+    static func applicationSupport() throws -> FilePingQueueStore {
+        let directory = try FileManager.default.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        )
+        return FilePingQueueStore(directory: directory)
+    }
+
+    func load() async throws -> [QueuedPing] {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            return []
+        }
+        do {
+            let data = try Data(contentsOf: fileURL)
+            return try JSONDecoder().decode([QueuedPing].self, from: data)
+        } catch {
+            // The file could not be read back as a queue -- set it aside rather than delete it
+            // (its entries were never delivered, so keeping them breaks none of D-12's four
+            // conditions) and report an honest failure. The next write starts a clean file, so
+            // this reports the failure exactly once rather than on every subsequent load.
+            try setAsideUnreadableFile()
+            throw PingQueueError.unreadable
+        }
+    }
+
+    func append(_ ping: QueuedPing) async throws {
+        var pings = try await load()
+        guard pings.count < Self.capacity else {
+            throw PingQueueError.full
+        }
+        pings.append(ping)
+        try write(pings)
+    }
+
+    func replace(with pings: [QueuedPing]) async throws {
+        try write(pings)
+    }
+
+    /// Moves the unreadable file aside under a fixed name, replacing any previous set-aside
+    /// file rather than accumulating them -- one generation of "could not be read" evidence is
+    /// enough, and this is never deleted outright: the entries in it were never delivered.
+    private func setAsideUnreadableFile() throws {
+        if FileManager.default.fileExists(atPath: unreadableFileURL.path) {
+            try FileManager.default.removeItem(at: unreadableFileURL)
+        }
+        try FileManager.default.moveItem(at: fileURL, to: unreadableFileURL)
+    }
+
+    /// The only place this file is ever written. Both protections are reasserted on every call:
+    /// `.completeFileProtectionUnlessOpen` so the coordinates in it are encrypted at rest except
+    /// while the app is actually reading or writing them, and `isExcludedFromBackup` so they
+    /// never leave the device in an iCloud or iTunes backup. Neither is optional and neither is
+    /// applied only once.
+    private func write(_ pings: [QueuedPing]) throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let data = try JSONEncoder().encode(pings)
+        try data.write(to: fileURL, options: [.atomic, .completeFileProtectionUnlessOpen])
+
+        var excludedURL = fileURL
+        var resourceValues = URLResourceValues()
+        resourceValues.isExcludedFromBackup = true
+        try excludedURL.setResourceValues(resourceValues)
+    }
+}
