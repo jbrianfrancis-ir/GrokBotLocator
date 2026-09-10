@@ -14,14 +14,72 @@ fi
 
 echo "==> type-scale guard: no sub-17pt font literal or raw system-size call outside DSTypography"
 EXEMPT="src/Core/DesignSystem/DSTypography.swift"
+# `.system(size:` is matched on its OWN line, not only after `.font(`: grep is line-based, so
+# `Text("x").font(\n    .system(size: 20)\n)` walked straight past the anchored pattern. Same for
+# `Font.system(size:)` and `UIFont.systemFont(ofSize:)`, neither of which mentions `.font(`.
 GUARD_HITS=$(grep -rnE \
-    -e '\.font\([[:space:]]*\.system\([[:space:]]*size:' \
+    -e '\.system\([[:space:]]*size:' \
+    -e 'Font\.system\(' \
+    -e 'UIFont\.systemFont\(' \
+    -e 'ofSize:[[:space:]]*-?([0-9]|1[0-6])(\.[0-9]+)?\b' \
     -e 'size:[[:space:]]*-?([0-9]|1[0-6])(\.[0-9]+)?\b' \
     src --include='*.swift' 2>/dev/null | grep -v "^${EXEMPT}:" || true)
 
 if [[ -n "$GUARD_HITS" ]]; then
     echo "type-scale guard failed -- font-size literal below 17pt or raw .font(.system(size:)) outside DSTypography:" >&2
     echo "$GUARD_HITS" >&2
+    exit 1
+fi
+
+echo "==> location guard: no requestAlwaysAuthorization/startUpdatingLocation/allowsBackgroundLocationUpdates, and CLLocationManager/CLLocationUpdate confined to CoreLocationFixProvider.swift"
+LOCATION_PROVIDER="src/Core/Location/CoreLocationFixProvider.swift"
+
+# `CLBackgroundActivitySession` is the modern way to keep location alive in the background -- it
+# is the ARCHITECTURE-Forbidden behaviour under a name none of the other patterns mention.
+FORBIDDEN_API_HITS=$(grep -rnE \
+    'requestAlwaysAuthorization|startUpdatingLocation|allowsBackgroundLocationUpdates|CLBackgroundActivitySession' \
+    src --include='*.swift' 2>/dev/null || true)
+
+if [[ -n "$FORBIDDEN_API_HITS" ]]; then
+    echo "location guard failed -- requestAlwaysAuthorization/startUpdatingLocation/allowsBackgroundLocationUpdates is not allowed this phase (ARCHITECTURE Forbidden; Always is phase 04's to add deliberately):" >&2
+    echo "$FORBIDDEN_API_HITS" >&2
+    exit 1
+fi
+
+CORELOCATION_HITS=$(grep -rnE \
+    'CLLocationManager|CLLocationUpdate' \
+    src --include='*.swift' 2>/dev/null | grep -v "^${LOCATION_PROVIDER}:" || true)
+
+if [[ -n "$CORELOCATION_HITS" ]]; then
+    echo "location guard failed -- CLLocationManager/CLLocationUpdate must appear only in ${LOCATION_PROVIDER} (views never touch CLLocationManager):" >&2
+    echo "$CORELOCATION_HITS" >&2
+    exit 1
+fi
+
+echo "==> UserDefaults guard: the UserDefaults API confined to PingLabelStore.swift"
+LABEL_STORE="src/Ping/PingLabelStore.swift"
+
+# Matches the UserDefaults API, not the UserDefaultsPingLabelStore type name (legal at the
+# composition root) and not doc comments. PingLabelStore.swift's own header claims this guard
+# exists; before 2026-09-10 it did not, which is why the claim is now enforced rather than
+# asserted. ARCHITECTURE: credentials live only in the Keychain -- a typed label is neither a
+# credential nor a coordinate, so one caller is allowed and a second needs a decision.
+# Strips the allowed type name from each line BEFORE looking for the API, rather than dropping
+# any line that mentions it: a line-level `grep -v` let a second real caller hide beside the
+# type name (`UserDefaultsPingLabelStore(); UserDefaults.standard.set(...)`), which the
+# phase-02 verifier caught by probing it live.
+# `@AppStorage` and `@SceneStorage` write to UserDefaults without containing the string, so the
+# credential this guard exists to keep OUT of UserDefaults could be declared in one line and the
+# guard would report nothing. ARCHITECTURE: credentials live only in the Keychain.
+USERDEFAULTS_HITS=$(grep -rnE 'UserDefaults|@AppStorage|@SceneStorage' src --include='*.swift' 2>/dev/null \
+    | grep -v "^${LABEL_STORE}:" \
+    | grep -vE '^[^:]*:[0-9]+: *(///|//|\*)' \
+    | sed 's/UserDefaultsPingLabelStore//g' \
+    | grep -E 'UserDefaults|@AppStorage|@SceneStorage' || true)
+
+if [[ -n "$USERDEFAULTS_HITS" ]]; then
+    echo "UserDefaults guard failed -- the UserDefaults API must appear only in ${LABEL_STORE} (a second caller is a decision, not a detail):" >&2
+    echo "$USERDEFAULTS_HITS" >&2
     exit 1
 fi
 
