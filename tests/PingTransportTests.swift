@@ -245,4 +245,23 @@ struct PingTransportTests {
         }
         #expect(reason.contains("307"))
     }
+    /// Survived a mutation: prefixing "Bearer " only when the header is `Authorization` passed,
+    /// because the existing no-prefix assertion uses an `X-Test-Key` fixture -- while
+    /// `Authorization` is `WebhookCredentials.defaultHeaderName`, the path real users hit.
+    @Test
+    func theDefaultAuthorizationHeaderAlsoCarriesTheKeyVerbatim() async throws {
+        StubURLProtocol.reset()
+        StubURLProtocol.stub = .init(statusCode: 200, body: Data())
+        let credentials = WebhookCredentials(
+            url: Self.credentials.url, senderKey: Self.credentials.senderKey,
+            headerName: WebhookCredentials.defaultHeaderName)
+
+        _ = try await makeTransport().send(Self.payload, using: credentials)
+
+        let request = try #require(StubURLProtocol.capturedRequest)
+        let value = try #require(
+            request.value(forHTTPHeaderField: WebhookCredentials.defaultHeaderName))
+        #expect(value == Self.credentials.senderKey)
+        #expect(!value.hasPrefix("Bearer "))
+    }
 }

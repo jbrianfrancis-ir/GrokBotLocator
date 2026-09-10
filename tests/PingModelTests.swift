@@ -370,6 +370,62 @@ struct PingModelTests {
         #expect(model.authorizationNotice == "Manual pings work now.")
     }
 
+    /// Survived a mutation: deleting `guidance = nil` at the top of `ping()` passed the gate,
+    /// because no test ever pinged successfully AFTER a fix-less failure. User-visible effect is
+    /// "Add your webhook URL…" still on screen under a ping that just succeeded.
+    @Test
+    func aSuccessfulPingClearsGuidanceLeftByAnEarlierFailure() async {
+        let fakes = Fakes()
+        let model = fakes.makeModel()
+        fakes.sender.attemptToReturn = PingAttempt(
+            fix: nil, disposition: .permanentFailure(reason: LocationFixError.timedOut.reason),
+            statusCode: nil, responseBody: nil)
+        await model.ping()
+        #expect(model.guidance != nil)
+
+        fakes.sender.attemptToReturn = PingAttempt(
+            fix: Self.fixtureFix, disposition: .sent, statusCode: 200, responseBody: nil)
+        await model.ping()
+
+        #expect(model.guidance == nil)
+    }
+
+    /// Survived a mutation: deleting `refreshAuthorizationNotice()` from `ping()` passed, because
+    /// the notice tests call that method directly. A first ping is when the system prompt gets
+    /// answered, so the notice can only be right afterwards -- REQ-10's first-run path.
+    @Test
+    func pingRefreshesTheAuthorizationNoticeAfterwards() async {
+        let fakes = Fakes()
+        let model = fakes.makeModel()
+        fakes.sender.attemptToReturn = PingAttempt(
+            fix: Self.fixtureFix, disposition: .sent, statusCode: 200, responseBody: nil)
+        // The prompt is answered during the ping, so the notice only becomes available now.
+        fakes.fixes.notice = "Manual pings work now."
+
+        await model.ping()
+
+        #expect(model.authorizationNotice == "Manual pings work now.")
+    }
+
+    /// Survived a mutation: dropping the reason from the spoken sentence passed, because the old
+    /// test only compared a success against a failure and "Ping sent." vs "Ping failed." stay
+    /// distinct. DESIGN.md wants the outcome announced -- a bare "Ping failed." tells a VoiceOver
+    /// user nothing about what to do next.
+    @Test
+    func aFailureAnnouncementCarriesItsReason() async {
+        let fakes = Fakes()
+        let model = fakes.makeModel()
+        fakes.sender.attemptToReturn = PingAttempt(
+            fix: Self.fixtureFix,
+            disposition: .permanentFailure(reason: "Check the sender key in Settings."),
+            statusCode: 401, responseBody: nil)
+
+        await model.ping()
+
+        let spoken = model.lastAnnouncement?.text
+        #expect(spoken?.contains("Check the sender key in Settings.") == true)
+    }
+
     // MARK: Authorization notice (REQ-10)
 
     @Test
