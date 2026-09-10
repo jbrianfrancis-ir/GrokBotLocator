@@ -55,12 +55,22 @@ struct SettingsView: View {
                             model.save()
                         }
 
-                        Button("Clear") {
+                        // The 60pt frame and the content shape live INSIDE the label, as in
+                        // PingButton: a `.frame` applied to the Button from outside enlarges the
+                        // layout slot but leaves the extra area non-hittable, so the real target
+                        // stays the width of the word. `.contentShape` makes the whole frame take
+                        // the tap. An Accessibility Inspector audit cannot catch the outside form
+                        // -- it measures the accessibility element, which the outer frame does
+                        // enlarge -- so this pattern is the guard, not the audit.
+                        Button {
                             model.clear()
+                        } label: {
+                            Text("Clear")
+                                .dsFont(.body)
+                                .frame(maxWidth: .infinity, minHeight: DSMetrics.minTapTarget)
+                                .contentShape(Rectangle())
                         }
-                        .dsFont(.body)
                         .foregroundStyle(DSPalette.body.foreground(for: colorScheme))
-                        .frame(maxWidth: .infinity, minHeight: DSMetrics.minTapTarget)
                         .accessibilityLabel("Clear settings")
                     }
                 }
