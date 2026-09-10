@@ -3,11 +3,19 @@ import SwiftUI
 /// The settings screen (01-12): the app's only screen for this phase. A `ScrollView` over a
 /// `VStack`, never a `Form` -- AX5 reflows vertically with nothing clipped. Three
 /// `CredentialField`s bind straight to `SettingsModel`; the sender key never carries a stored
-/// value back into the view (D-10), only `model.hasStoredKey` does. The save action sits in
-/// the bottom third for one-handed reach: a `GeometryReader` gives the content a `minHeight`
-/// (never a fixed height) so a trailing `Spacer` pushes the outcome/save/clear/test group down
-/// when the screen has room, while AX5's taller content simply scrolls past that minimum. No
-/// glass anywhere here -- every fill is an opaque `DSPalette` pair, matching CredentialField
+/// value back into the view (D-10), only `model.hasStoredKey` does.
+///
+/// The save action is a pinned `safeAreaInset(edge: .bottom)`, the same shape `PingHomeView`
+/// uses for "I'm here". It was a trailing `Spacer` inside the scroll until 2026-09-10: because
+/// `statusView` sat in that same stack, a save INSERTED the "Saved" badge into the flow, grew
+/// the content past the screen, and pushed "Save settings" below the fold -- the feedback for
+/// an action displacing the action, at the one moment the user was looking for it. Pinned, the
+/// badge grows upward and the button cannot move. `connectionReportView` stays in the scroll
+/// deliberately: it renders a whole 401 body, and PingHomeView's actionBar comment gives the
+/// reason -- a wrapped sentence in the bottom bar eats the budget the 88pt action floor needs
+/// at AX5. Only the short status badge is allowed to share the bar.
+///
+/// No glass anywhere here -- every fill is an opaque `DSPalette` pair, matching CredentialField
 /// and PingButton; navigation chrome is the system's own and needs no code from this file.
 struct SettingsView: View {
     @Bindable var model: SettingsModel
@@ -15,48 +23,39 @@ struct SettingsView: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        GeometryReader { geometry in
-            ScrollView {
+        ScrollView {
+            VStack(alignment: .leading, spacing: DSMetrics.groupGap) {
+                Text("Settings")
+                    .dsFont(.screenTitle)
+                    .foregroundStyle(DSPalette.body.foreground(for: colorScheme))
+                    .accessibilityAddTraits(.isHeader)
+
                 VStack(alignment: .leading, spacing: DSMetrics.groupGap) {
-                    Text("Settings")
-                        .dsFont(.screenTitle)
-                        .foregroundStyle(DSPalette.body.foreground(for: colorScheme))
-                        .accessibilityAddTraits(.isHeader)
+                    CredentialField(
+                        label: "Webhook URL",
+                        text: $model.urlText,
+                        footnote: "Where pings are sent. Must start with https://."
+                    )
+                    .keyboardType(.URL)
 
-                    VStack(alignment: .leading, spacing: DSMetrics.groupGap) {
-                        CredentialField(
-                            label: "Webhook URL",
-                            text: $model.urlText,
-                            footnote: "Where pings are sent. Must start with https://."
-                        )
-                        .keyboardType(.URL)
+                    CredentialField(
+                        label: "Sender key",
+                        text: $model.senderKey,
+                        isSecure: true,
+                        savedIndicator: model.hasStoredKey ? "Key saved" : nil,
+                        footnote:
+                            "Type the whole header value the routine expects, for example Bearer abc123 — it is sent exactly as typed."
+                    )
 
-                        CredentialField(
-                            label: "Sender key",
-                            text: $model.senderKey,
-                            isSecure: true,
-                            savedIndicator: model.hasStoredKey ? "Key saved" : nil,
-                            footnote:
-                                "Type the whole header value the routine expects, for example Bearer abc123 — it is sent exactly as typed."
-                        )
+                    CredentialField(
+                        label: "Header name",
+                        text: $model.headerName,
+                        footnote:
+                            "The header the sender key rides in. Defaults to \(WebhookCredentials.defaultHeaderName)."
+                    )
+                }
 
-                        CredentialField(
-                            label: "Header name",
-                            text: $model.headerName,
-                            footnote:
-                                "The header the sender key rides in. Defaults to \(WebhookCredentials.defaultHeaderName)."
-                        )
-                    }
-
-                    Spacer(minLength: DSMetrics.groupGap)
-
-                    VStack(alignment: .leading, spacing: DSMetrics.groupGap) {
-                        statusView
-
-                        PingButton(title: "Save settings") {
-                            model.save()
-                        }
-
+                VStack(alignment: .leading, spacing: DSMetrics.groupGap) {
                         // The 60pt frame and the content shape live INSIDE the label, as in
                         // PingButton: a `.frame` applied to the Button from outside enlarges the
                         // layout slot but leaves the extra area non-hittable, so the real target
@@ -91,13 +90,31 @@ struct SettingsView: View {
                         .disabled(model.isTesting)
 
                         connectionReportView
-                    }
                 }
-                .padding(DSMetrics.screenMargin)
-                .frame(minHeight: geometry.size.height, alignment: .top)
+            }
+            .padding(DSMetrics.screenMargin)
+        }
+        .safeAreaInset(edge: .bottom) { saveBar }
+        .task { model.load() }
+    }
+
+    /// The primary action, pinned to the bottom so the status badge grows upward instead of
+    /// displacing it. Mirrors `PingHomeView.actionBar` -- same opaque `DSPalette` fill, same
+    /// screen margin, and never a material: DESIGN.md bars Liquid Glass from behind the primary
+    /// action. `statusView` is the only thing allowed to share the bar, and only because a save
+    /// outcome is a word or a short validation sentence; the webhook's own answer, which can run
+    /// to a whole response body, stays in the scroll as `connectionReportView`.
+    private var saveBar: some View {
+        VStack(alignment: .leading, spacing: DSMetrics.spacingBase) {
+            statusView
+
+            PingButton(title: "Save settings") {
+                model.save()
             }
         }
-        .task { model.load() }
+        .padding(DSMetrics.screenMargin)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DSPalette.body.background(for: colorScheme))
     }
 
     /// Symbol + word/sentence + colour, on its own opaque fill -- never colour alone, never a

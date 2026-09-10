@@ -210,6 +210,75 @@ struct PingModelTests {
     }
 
     @Test
+    func theBadgeIsSuppressedWhenTheNewestRowAlreadySaysIt() async {
+        // The screen that prompted this: one send, one row reading "Sent", and the badge beside
+        // the button reading "Sent" again a few hundred points below it.
+        let fakes = Fakes()
+        let model = fakes.makeModel()
+        fakes.sender.attemptToReturn = PingAttempt(
+            fix: Self.fixtureFix, disposition: .sent, statusCode: 200, responseBody: nil)
+
+        await model.ping()
+
+        #expect(model.lastAttempt != nil)
+        #expect(model.log.entries.count == 1)
+        #expect(model.log.entries[0].outcome == .sent)
+        #expect(model.showsLastAttemptBadge == false)
+    }
+
+    @Test
+    func theBadgeStillShowsWhenTheTapRecordedNoRow() async {
+        // The no-fix path reports through the badge alone -- `ping()` records a row only when
+        // `attempt.fix` is non-nil, so a refused fix leaves the history empty and the badge is
+        // the ONLY report of what the tap did. This is the case 02-12 added the badge for, and
+        // the regression the suppression could have introduced.
+        let fakes = Fakes()
+        let model = fakes.makeModel()
+        fakes.sender.attemptToReturn = PingAttempt(
+            fix: nil,
+            disposition: .permanentFailure(reason: "Location access is off for this app."),
+            statusCode: nil, responseBody: nil)
+
+        await model.ping()
+
+        #expect(model.log.entries.isEmpty)
+        #expect(model.lastAttempt != nil)
+        #expect(model.showsLastAttemptBadge)
+    }
+
+    @Test
+    func theBadgeShowsAgainOnceASilentDrainMovesTheRowPastTheStandingFeedback() async {
+        // The real way row and feedback diverge: a background drain applies `announcing: false`,
+        // so the row flips Queued -> Sent while `lastAttempt` still holds the Queued it was given
+        // at tap time. The row and the badge now say different things, and the badge is no longer
+        // a repeat of the row, so it must render. This is the case a naive "a row exists, hide
+        // the badge" rule would have got wrong.
+        let fakes = Fakes()
+        let model = fakes.makeModel()
+        let queuedID = UUID()
+        fakes.sender.attemptToReturn = PingAttempt(
+            fix: Self.fixtureFix,
+            disposition: .retryable(reason: "Waiting to send."),
+            statusCode: nil, responseBody: nil, queuedID: queuedID)
+
+        await model.ping()
+
+        #expect(model.log.entries[0].outcome == .queued)
+        #expect(model.showsLastAttemptBadge == false)  // row says Queued, so does the feedback
+
+        let row = model.log.entries[0]
+        model.apply(
+            [PingDeliveryUpdate(
+                id: queuedID, timestamp: row.timestamp, latitude: row.latitude,
+                longitude: row.longitude, label: row.label, outcome: .sent, reason: nil)],
+            announcing: false)
+
+        #expect(model.log.entries[0].outcome == .sent)
+        #expect(model.lastAttempt?.outcome == .queued)
+        #expect(model.showsLastAttemptBadge)
+    }
+
+    @Test
     func aRetryableAttemptRecordsAQueuedRowCarryingItsReason() async {
         let fakes = Fakes()
         let model = fakes.makeModel()
