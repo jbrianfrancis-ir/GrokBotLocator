@@ -6,6 +6,15 @@ import SwiftUI
 /// measurement itself is capable of failing (a harness that always reports 1.00x would
 /// pass silently otherwise). `ImageRenderer` and its `.uiImage` are MainActor-isolated,
 /// so the whole suite must be `@MainActor` -- it will not compile otherwise.
+///
+/// `tokenOrderAtAX5IsPinned` encodes what the harness measures today, not the intended
+/// hierarchy -- it is a tripwire, not a style guide. The measured AX5 inversion
+/// (`actionLabel` rendering above `screenTitle`) is accepted per .planning/DECISIONS.md's
+/// 2026-09-10 15:30 checkpoint-decision: the curves in DSTypography stay untouched, and
+/// the order test failing later is the signal, not a bug in the test. A future phase that
+/// wants strict order at every size has to change a `relativeTo` curve in DSTypography and
+/// re-run REQ-12's Accessibility Inspector audit on every screen -- the order test going
+/// red is what tells that phase its change reaches past one file.
 @MainActor
 @Suite
 struct DynamicTypeScalingTests {
