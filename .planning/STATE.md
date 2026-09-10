@@ -1,9 +1,9 @@
 <!-- .planning/STATE.md — cap 1.5KB. Rewrite sections in place; never append. -->
 # State
 ## Position
-Phase: 2 of 4 (Manual ping) | Plans: 13 written, 0 executed | Status: PLANNED, checker PASS
-Last: 2026-09-10 — phase 01 merged (PR #1). Phase 02 planned: 13 plans, 3 revision rounds, 24 checker issues all resolved, final PASS re-confirmed against HEAD by a second checker.
-Next: /flow-execute 2
+Phase: 2 of 4 (Manual ping) | Plans: 13 written, 10 executed | Status: EXECUTING
+Last: 2026-09-10 — 02-10: SettingsModel.testConnection + ConnectionReport (REQ-11); smoke 84 tests/12 suites.
+Next: /flow-execute 2 — resume at plan 02-11
 ## Gate
 none
 ## Run
@@ -18,7 +18,8 @@ Signature: rule4:phase02:plans0/13:verifnone
 ## Blockers
 - none
 ## Session
-Stopped: planning closed on flow/manual-ping. 13 waves, fully serial — smoke.sh shares one
-  xcodeproj and derived-data dir. Runs unattended; human checks batch at 02-11/02-13.
-Resume: /flow-execute 2. ACTION (human, on-device): re-save credentials on the iPhone to migrate
-  Keychain items to ThisDeviceOnly. ~15 PR #1 should-fix findings unfixed. D-03 OPEN (expires 2026-09-16).
+Stopped: 02-10 committed (e56842a, 4e92cd3). Waves serial — smoke.sh shares one xcodeproj and
+  derived-data dir; human checks batch at 02-11/02-13.
+Resume: /flow-execute 2 at 02-11. FLAKY: PingModelTests in-flight case hung 2/5 runs (02-10
+  deferred). ACTION (human, on-device): re-save credentials on the iPhone to migrate Keychain to
+  ThisDeviceOnly. ~15 PR #1 should-fix findings unfixed. D-03 OPEN (expires 2026-09-16).
