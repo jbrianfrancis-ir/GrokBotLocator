@@ -36,5 +36,17 @@ Three backstop truths also remain unverified by design — the non-401/403 4xx r
 the app prepends `Bearer `, and what a negative `horizontalAccuracy` means. Each needs a rule
 stated in REQUIREMENTS.md, then a test.
 
-| 03 | Durable delivery | Offline queue, backoff retry, connectivity observation, failure classification — no ping is lost on Italian roaming | REQ-05, SC-02 | pending |
-| 04 | Automatic triggers | Significant-change, visits, `CLMonitor` geofences, per-trigger toggles, rate limit, reverse-geocoded labels | REQ-06, REQ-07, REQ-08, REQ-09, SC-03, SC-04 | pending |
+| 03 | Durable delivery | Offline queue, backoff retry, connectivity observation, failure classification — no ping is lost on Italian roaming | REQ-05, SC-02 | planned |
+
+### Carried out of phase 03 — REQ-05's fourth drain opportunity
+REQ-05 names four opportunities the queue may drain on: connectivity returning while the app is
+alive, a **location-triggered wake**, a manual launch, and a `BGAppRefreshTask`. Phase 03 owns
+three. The location-triggered wake cannot be built there — nothing wakes the app on location until
+phase 04 registers significant-change, visit and geofence monitoring — so it is **deferred, not
+waived**, and REQ-05 is listed against phase 04 below so it cannot be marked done without it.
+- **Entry point already built**: `QueueDrainCoordinator.drainForeground()` (phase 03, plan 03-10).
+  Phase 04 calls it from each location callback; it needs no new drain machinery, only the call.
+- Phase 03 verifies green without it by design. REQ-05's `accept:` clause does not exercise a
+  location wake, which is exactly why this section exists — the clause cannot be the tracker.
+
+| 04 | Automatic triggers | Significant-change, visits, `CLMonitor` geofences, per-trigger toggles, rate limit, reverse-geocoded labels | REQ-05 (location-wake drain, carried), REQ-06, REQ-07, REQ-08, REQ-09, SC-03, SC-04 | pending |
