@@ -77,7 +77,15 @@ struct PingSenderTests {
         private(set) var enqueueCallCount = 0
         private(set) var payloads: [PingPayload] = []
         private(set) var reasons: [String] = []
-        var outcomeToReturn: PingEnqueueOutcome = .queued
+        /// The id `outcomeToReturn` actually carries when it is `.queued` -- read this back
+        /// rather than re-deriving it from the enum case, so a test can assert the exact id
+        /// the sink handed out reached the caller.
+        let queuedID = UUID()
+        var outcomeToReturn: PingEnqueueOutcome
+
+        init() {
+            outcomeToReturn = .queued(id: queuedID)
+        }
 
         func enqueue(_ payload: PingPayload, reason: String) async -> PingEnqueueOutcome {
             enqueueCallCount += 1
