@@ -25,6 +25,29 @@ if [[ -n "$GUARD_HITS" ]]; then
     exit 1
 fi
 
+echo "==> location guard: no requestAlwaysAuthorization/startUpdatingLocation/allowsBackgroundLocationUpdates, and CLLocationManager/CLLocationUpdate confined to CoreLocationFixProvider.swift"
+LOCATION_PROVIDER="src/Core/Location/CoreLocationFixProvider.swift"
+
+FORBIDDEN_API_HITS=$(grep -rnE \
+    'requestAlwaysAuthorization|startUpdatingLocation|allowsBackgroundLocationUpdates' \
+    src --include='*.swift' 2>/dev/null || true)
+
+if [[ -n "$FORBIDDEN_API_HITS" ]]; then
+    echo "location guard failed -- requestAlwaysAuthorization/startUpdatingLocation/allowsBackgroundLocationUpdates is not allowed this phase (ARCHITECTURE Forbidden; Always is phase 04's to add deliberately):" >&2
+    echo "$FORBIDDEN_API_HITS" >&2
+    exit 1
+fi
+
+CORELOCATION_HITS=$(grep -rnE \
+    'CLLocationManager|CLLocationUpdate' \
+    src --include='*.swift' 2>/dev/null | grep -v "^${LOCATION_PROVIDER}:" || true)
+
+if [[ -n "$CORELOCATION_HITS" ]]; then
+    echo "location guard failed -- CLLocationManager/CLLocationUpdate must appear only in ${LOCATION_PROVIDER} (views never touch CLLocationManager):" >&2
+    echo "$CORELOCATION_HITS" >&2
+    exit 1
+fi
+
 echo "==> xcodegen generate"
 xcodegen generate
 
