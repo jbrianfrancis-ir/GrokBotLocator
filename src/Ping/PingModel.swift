@@ -89,20 +89,20 @@ final class PingModel {
             outcome = .failed
             reason = r
         case .retryable(let r):
-            // UNREACHABLE in the shipped app while `UnqueuedPingSink` is the sink: it always
-            // answers `.notQueued`, so `PingSender` downgrades every retryable to a permanent
-            // failure before this switch sees it. Phase 03's queue answers `.queued`, which makes
-            // this arm live and is where it becomes `.queued` on screen (REQ-05). Recording it as
-            // `.failed` with its reason is what keeps "no ping silently dropped"
-            // (ARCHITECTURE.md) true either way -- a ping nothing holds is never called pending.
-            outcome = .failed
+            // Live now that phase 03's queue answers `.queued` instead of `.notQueued`:
+            // `PingSender` only downgrades a REFUSED enqueue to `.permanentFailure` before
+            // returning, so by the time this arm is reached the sink has already accepted the
+            // payload. `.queued` here means a ping something is actually holding, which is what
+            // makes "no ping silently dropped" (ARCHITECTURE.md) hold in this direction too.
+            outcome = .queued
             reason = r
         }
 
         if let fix = attempt.fix {
             log.record(
                 PingHistoryEntry(
-                    timestamp: fix.timestamp, latitude: fix.latitude, longitude: fix.longitude,
+                    id: attempt.queuedID ?? UUID(), timestamp: fix.timestamp,
+                    latitude: fix.latitude, longitude: fix.longitude,
                     label: label, outcome: outcome, reason: reason))
         } else {
             // No fix means no coordinates to list -- record nothing, and explain why instead.
@@ -122,5 +122,46 @@ final class PingModel {
         attemptSequence += 1
         lastAttempt = PingAttemptFeedback(
             sequence: attemptSequence, outcome: outcome, reason: reason)
+    }
+
+    /// Folds a drain's delivery updates into the log. `announcing` is NOT defaulted: both call
+    /// sites (03-10's `QueueDrainCoordinator`) must say which they mean, because getting it
+    /// wrong is silent in review and loud on the device.
+    ///
+    /// Only `.sent` and `.failed` updates ever reach the announcing path -- 03-09's drain emits
+    /// no `.queued` updates, because a still-waiting ping has not changed for the user -- which
+    /// is why `PingAttemptFeedback.spoken`'s two-way split ("Ping sent." vs "Ping failed. " +
+    /// reason) is adequate there and only there.
+    ///
+    /// - `announcing: true`: a drain the user is present for. Every update is applied to the
+    ///   log, and `lastAttempt` is set once, for the LAST update only, at a fresh
+    ///   `attemptSequence` -- a queued ping flipping to Sent is announced (DESIGN.md: outcomes
+    ///   are announced, not just drawn) without narrating a ten-row drain one row at a time.
+    /// - `announcing: false`: launch hydration. Every update is applied to the log, but
+    ///   `lastAttempt` and `attemptSequence` are left UNTOUCHED. `spoken` renders any non-`.sent`
+    ///   outcome as "Ping failed. " + reason, so announcing here would speak "Ping failed. " for
+    ///   a queued row restored from disk -- a fact about the past, not an outcome of a tap the
+    ///   user just made.
+    ///
+    /// Either mode: an empty `updates` array touches nothing at all, including `guidance` and
+    /// `authorizationNotice` -- a drain that delivered nothing is not an event.
+    func apply(_ updates: [PingDeliveryUpdate], announcing: Bool) {
+        guard !updates.isEmpty else { return }
+        for update in updates {
+            log.apply(update)
+        }
+        guard announcing, let last = updates.last else { return }
+        attemptSequence += 1
+        lastAttempt = PingAttemptFeedback(
+            sequence: attemptSequence, outcome: last.outcome, reason: last.reason)
+    }
+
+    /// The only way anything outside this file can put a drain sentence on screen -- `guidance`
+    /// stays `private(set)` so no caller can otherwise clobber the authorization sentence
+    /// `ping()` reconciles against it. A drain notice and the authorization notice are different
+    /// things: this does not touch `authorizationNotice`, and the `guidance == authorizationNotice`
+    /// de-duplication above is unchanged and still runs on the ping path only.
+    func show(notice: String) {
+        guidance = notice
     }
 }
