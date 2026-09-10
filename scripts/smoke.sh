@@ -39,12 +39,17 @@ LOG_FILE="${DERIVED_DATA%/}.log"
 mkdir -p "$(dirname "$LOG_FILE")"
 
 echo "==> xcodebuild test (destination udid: $UDID)"
+# `set +e` around the pipeline, NOT `|| true`: bash refreshes PIPESTATUS after every
+# command, so `|| true` runs `true` and overwrites PIPESTATUS[0] with 0 -- making
+# BUILD_STATUS unconditionally 0 and the exit-code check below dead code.
+set +e
 xcodebuild test \
     -scheme GrokBotLocator \
     -destination "platform=iOS Simulator,id=$UDID" \
     -derivedDataPath "$DERIVED_DATA" \
-    2>&1 | tee "$LOG_FILE" || true
+    2>&1 | tee "$LOG_FILE"
 BUILD_STATUS=${PIPESTATUS[0]}
+set -e
 
 if [[ "$BUILD_STATUS" -ne 0 ]]; then
     echo "==> xcodebuild exited $BUILD_STATUS; tail of $LOG_FILE:" >&2
