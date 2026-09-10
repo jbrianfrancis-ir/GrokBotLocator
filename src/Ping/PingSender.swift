@@ -14,14 +14,41 @@ struct PingAttempt: Sendable, Equatable {
 /// `UnqueuedPingSink` wholesale. Until that lands, a retryable disposition is recorded as a
 /// `.failed` outcome with a user-visible reason -- never silently dropped (ARCHITECTURE.md) --
 /// but nothing in this phase drains a queue, so nothing here promises one.
-protocol PendingPingSink: Sendable {
-    func enqueue(_ payload: PingPayload, reason: String) async
+///
+/// What the sink did with a payload. A returned value rather than `throws`, for three reasons.
+/// ARCHITECTURE.md requires a USER-VISIBLE reason, and only the sink knows a sentence that is
+/// both specific and safe to show ("there is not enough storage left…"); a thrown `Error` would
+/// be turned into copy by `PingSender`, which knows nothing about storage, and this codebase has
+/// already established that interpolating a caught error into user-facing text is unsafe because
+/// it can carry the webhook URL (see `URLSessionPingTransport`). Nothing else in this pipeline
+/// throws: `PingSender.send` returns a `PingAttempt` for every branch including four failures, so
+/// a throwing edge here would be the only one inside a function whose shape is "every outcome is
+/// a value". And it matches `PingDisposition`, which is already this pattern -- a closed set of
+/// outcomes, each failure carrying a finished sentence.
+enum PingEnqueueOutcome: Sendable, Equatable {
+    case queued
+    case notQueued(reason: String)
 }
 
-/// The no-op implementation phase 02 ships. `enqueue` intentionally does nothing -- phase 03
-/// swaps in the durable queue that conforms to the same protocol.
+/// Phase 03's seam (REQ-05): the durable on-disk queue conforms to this protocol and replaces
+/// `UnqueuedPingSink` wholesale. A conformer that writes a file can fail -- disk full, data
+/// protection unavailable at a background wake, an encode error, a corrupt existing queue -- and
+/// the return value is how `PingSender` learns that. Without it, `PingModel` would flip this arm
+/// to a durable-looking "Queued" and reassure the user about a ping held nowhere, which is what
+/// ARCHITECTURE.md's "no ping is silently dropped" forbids and is worse than an honest failure,
+/// because it stops them worrying.
+protocol PendingPingSink: Sendable {
+    func enqueue(_ payload: PingPayload, reason: String) async -> PingEnqueueOutcome
+}
+
+/// The implementation phase 02 ships. Nothing durable exists yet, so nothing is EVER queued --
+/// and saying so in the return type is what makes that a type-enforced invariant rather than a
+/// promise kept by a comment. Echoes the classifier's own sentence back rather than inventing
+/// copy about the build. Phase 03 swaps in the durable queue that conforms to the same protocol.
 struct UnqueuedPingSink: PendingPingSink {
-    func enqueue(_ payload: PingPayload, reason: String) async {}
+    func enqueue(_ payload: PingPayload, reason: String) async -> PingEnqueueOutcome {
+        .notQueued(reason: reason)
+    }
 }
 
 /// What a caller above this needs to send a manual ping: one label in, one attempt out. A
@@ -86,7 +113,8 @@ struct PingSender: PingSending {
         }
 
         let payload = fix.payload(label: label)
-        let disposition: PingDisposition
+        // `var` because a failing enqueue below downgrades a retryable disposition to permanent.
+        var disposition: PingDisposition
         let statusCode: Int?
         let responseBody: String?
         do {
@@ -101,7 +129,15 @@ struct PingSender: PingSending {
         }
 
         if case .retryable(let reason) = disposition {
-            await pending.enqueue(payload, reason: reason)
+            switch await pending.enqueue(payload, reason: reason) {
+            case .queued:
+                break  // disposition stays .retryable -- it really is pending somewhere
+            case .notQueued(let why):
+                // Nothing holds this ping, so it is final for the user: gone, here is why, tap
+                // again. `.permanentFailure` already means and renders exactly that, and the
+                // sink supplied the sentence because only it knows what is safe to show.
+                disposition = .permanentFailure(reason: why)
+            }
         }
 
         return PingAttempt(

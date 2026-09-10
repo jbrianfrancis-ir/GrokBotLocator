@@ -81,10 +81,12 @@ final class PingModel {
             outcome = .failed
             reason = r
         case .retryable(let r):
-            // Phase 03 (REQ-05) turns this arm into `.queued` once the durable queue exists.
-            // Until then there is nowhere durable to put it, so a retryable disposition is
-            // recorded exactly like a permanent one -- `.failed`, with its reason -- which is
-            // what keeps "no ping silently dropped" (ARCHITECTURE.md) true in this phase.
+            // UNREACHABLE in the shipped app while `UnqueuedPingSink` is the sink: it always
+            // answers `.notQueued`, so `PingSender` downgrades every retryable to a permanent
+            // failure before this switch sees it. Phase 03's queue answers `.queued`, which makes
+            // this arm live and is where it becomes `.queued` on screen (REQ-05). Recording it as
+            // `.failed` with its reason is what keeps "no ping silently dropped"
+            // (ARCHITECTURE.md) true either way -- a ping nothing holds is never called pending.
             outcome = .failed
             reason = r
         }
