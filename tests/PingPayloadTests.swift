@@ -8,7 +8,8 @@ import Testing
 struct PingPayloadTests {
 
     private static let fixture = PingPayload(
-        latitude: 40.77465, longitude: 17.23107, accuracyMetres: 12.5, label: "Gallipoli")
+        latitude: 40.77465, longitude: 17.23107, accuracyMetres: 12.5, label: "Gallipoli",
+        capturedAt: Date(timeIntervalSince1970: 1_700_000_000))
 
     @Test
     func encodesExactlyTheFourKeysWithTheRightTypes() throws {
@@ -19,7 +20,7 @@ struct PingPayloadTests {
             return
         }
 
-        #expect(Set(dict.keys) == ["lat", "lng", "accuracy_m", "label"])
+        #expect(Set(dict.keys) == ["lat", "lng", "accuracy_m", "label", "at"])
 
         #expect(dict["lat"] is NSNumber)
         #expect(dict["lng"] is NSNumber)
@@ -61,7 +62,9 @@ struct PingPayloadTests {
 
     @Test
     func anEmptyLabelStillEmitsTheKey() throws {
-        let payload = PingPayload(latitude: 1, longitude: 2, accuracyMetres: 3, label: "")
+        let payload = PingPayload(
+            latitude: 1, longitude: 2, accuracyMetres: 3, label: "",
+            capturedAt: Date(timeIntervalSince1970: 1_700_000_000))
         let data = try payload.encoded()
         let parsed = try JSONSerialization.jsonObject(with: data)
         guard let dict = parsed as? [String: Any] else {
@@ -76,7 +79,9 @@ struct PingPayloadTests {
     @Test
     func foundationEscapesAnAwkwardLabel() throws {
         let awkward = "Santa Maria di \"Leuca\"\nPuglia — café"
-        let payload = PingPayload(latitude: 1, longitude: 2, accuracyMetres: 3, label: awkward)
+        let payload = PingPayload(
+            latitude: 1, longitude: 2, accuracyMetres: 3, label: awkward,
+            capturedAt: Date(timeIntervalSince1970: 1_700_000_000))
         let data = try payload.encoded()
 
         let parsed = try JSONSerialization.jsonObject(with: data)
@@ -97,13 +102,19 @@ struct PingPayloadTests {
         let nonFiniteValues: [Double] = [.infinity, -.infinity, .nan]
 
         for value in nonFiniteValues {
-            let badLatitude = PingPayload(latitude: value, longitude: 2, accuracyMetres: 3, label: "x")
+            let badLatitude = PingPayload(
+                latitude: value, longitude: 2, accuracyMetres: 3, label: "x",
+                capturedAt: Date(timeIntervalSince1970: 1_700_000_000))
             #expect(throws: PingPayloadError.nonFiniteValue) { try badLatitude.encoded() }
 
-            let badLongitude = PingPayload(latitude: 1, longitude: value, accuracyMetres: 3, label: "x")
+            let badLongitude = PingPayload(
+                latitude: 1, longitude: value, accuracyMetres: 3, label: "x",
+                capturedAt: Date(timeIntervalSince1970: 1_700_000_000))
             #expect(throws: PingPayloadError.nonFiniteValue) { try badLongitude.encoded() }
 
-            let badAccuracy = PingPayload(latitude: 1, longitude: 2, accuracyMetres: value, label: "x")
+            let badAccuracy = PingPayload(
+                latitude: 1, longitude: 2, accuracyMetres: value, label: "x",
+                capturedAt: Date(timeIntervalSince1970: 1_700_000_000))
             #expect(throws: PingPayloadError.nonFiniteValue) { try badAccuracy.encoded() }
         }
     }
