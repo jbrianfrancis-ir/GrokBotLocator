@@ -26,6 +26,21 @@ struct KeychainCredentialStoreTests {
         "test." + UUID().uuidString
     }
 
+    /// Reads `kSecAttrAccessible` straight off the stored item, independent of the store, so
+    /// the assertion is about what the Keychain actually holds rather than what the code says.
+    private static func accessibility(service: String, account: String) -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnAttributes as String: true,
+        ]
+        var result: AnyObject?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+              let attrs = result as? [String: Any] else { return nil }
+        return attrs[kSecAttrAccessible as String] as? String
+    }
+
     /// Number of `kSecClassGenericPassword` items matching `service`/`account`, independent
     /// of `KeychainCredentialStore` -- used to prove overwrite never leaves a duplicate.
     private static func itemCount(service: String, account: String) -> Int {
@@ -156,5 +171,48 @@ struct KeychainCredentialStoreTests {
                 headerName: Self.fixtureHeaderName))
         Self.deleteRawItem(service: service, account: "webhook.senderKey")
         #expect(try store.load() == nil)
+    }
+
+    /// Regression (pre-PR security review): every stored item must carry
+    /// `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`. Without the `ThisDeviceOnly`
+    /// suffix the sender key travels in an encrypted iTunes/Finder backup and restores onto
+    /// other hardware, so anyone holding the backup and its password recovers the bearer
+    /// credential in cleartext.
+    ///
+    /// The second save is the point of the test: `writeString` takes the `SecItemUpdate`
+    /// branch once an item exists, and `SecItemUpdate` leaves attributes it is not handed
+    /// untouched. Setting the class only on the add path would leave every already-written
+    /// item on the old permissive class forever -- invisible to a test that saved only once.
+    @Test
+    func everyStoredItemIsThisDeviceOnlyAcrossAddAndUpdate() throws {
+        let service = Self.throwawayService()
+        let store = KeychainCredentialStore(service: service)
+        defer { try? store.clear() }
+
+        let expected = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String
+        let accounts = ["webhook.url", "webhook.senderKey", "webhook.headerName"]
+
+        try store.save(
+            WebhookCredentials(
+                url: Self.fixtureURL,
+                senderKey: Self.fixtureSenderKey,
+                headerName: Self.fixtureHeaderName))
+
+        for account in accounts {
+            #expect(Self.accessibility(service: service, account: account) == expected,
+                    "after SecItemAdd, \(account) is not ThisDeviceOnly")
+        }
+
+        // Second save -> the SecItemUpdate branch.
+        try store.save(
+            WebhookCredentials(
+                url: Self.fixtureURL2,
+                senderKey: Self.fixtureSenderKey2,
+                headerName: Self.fixtureHeaderName2))
+
+        for account in accounts {
+            #expect(Self.accessibility(service: service, account: account) == expected,
+                    "after SecItemUpdate, \(account) is not ThisDeviceOnly")
+        }
     }
 }

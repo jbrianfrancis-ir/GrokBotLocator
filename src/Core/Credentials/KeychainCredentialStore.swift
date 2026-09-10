@@ -82,16 +82,29 @@ struct KeychainCredentialStore: CredentialStore {
 
     /// Updates the existing item in place; on `errSecItemNotFound` falls back to adding one,
     /// so a re-save overwrites rather than duplicating.
+    ///
+    /// `...ThisDeviceOnly` is the point of the accessibility class: without the suffix the
+    /// item travels in an encrypted iTunes/Finder backup and restores onto other hardware,
+    /// so anyone with the backup and its password recovers the sender key in cleartext.
+    /// `AfterFirstUnlock` (needed for phase 04's background pings while locked) is retained.
+    /// The attribute is set on BOTH branches on purpose -- `SecItemUpdate` leaves attributes
+    /// it is not given untouched, so setting it only on the add path would leave every item
+    /// already written on a device sitting on the old, permissive class forever.
     private func writeString(_ value: String, account: String) throws {
         let data = Data(value.utf8)
         let query = baseQuery(account: account)
+        let accessible = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         let updateStatus = SecItemUpdate(
-            query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+            query as CFDictionary,
+            [
+                kSecValueData as String: data,
+                kSecAttrAccessible as String: accessible,
+            ] as CFDictionary)
 
         if updateStatus == errSecItemNotFound {
             var addQuery = query
             addQuery[kSecValueData as String] = data
-            addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+            addQuery[kSecAttrAccessible as String] = accessible
             let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
             guard addStatus == errSecSuccess else {
                 throw CredentialStoreError(operation: "save", status: addStatus)
