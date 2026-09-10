@@ -9,8 +9,8 @@ none — D-12 (19:10) answered both: queue file sanctioned for coordinates (prot
 deleted on delivery); wire format gains `at` (ISO-8601 time of the FIX) as a 5th pinned key.
 Still open but NOT blocking: 11 on-screen checks from phase 02 (ROADMAP "Carried out of phase 02").
 ## Run
-Iteration: 2 | Started: 2026-09-10T19:10Z | Repeats: 1
-Signature: rule6:phase03:plans0/0:verifnone
+Iteration: 3 | Started: 2026-09-10T19:10Z | Repeats: 0
+Signature: rule4:phase03:plans0/12:verifnone
 ## Decisions
 - init: iOS 26.0; deploy.tool null — merge is terminal (D-01/04/07)
 - 15:30: type curves LEFT ALONE; AX5 inversion accepted, pinned by 02-01
