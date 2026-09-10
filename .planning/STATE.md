@@ -2,7 +2,7 @@
 # State
 ## Position
 Phase: 3 of 4 EXECUTING — waves 1-2 done (03-11,01,02,03,04), gate green 123/14 | 7 plans left
-Last: 2026-09-10 — wave 2 ran 4 plans in one checkout. Commit-sweep race hit 3x (git add -A took siblings' staged work); code correct, attribution crossed. No history rewritten.
+Last: 2026-09-10 — wave 2 ran 4 plans in ONE checkout; the shared git index crossed commit attribution 4x even with explicit-path staging. Code correct, trailers wrong. Use worktrees next.
 Next: /flow-execute 3 — resumes at wave 3 (03-05, 03-06, 03-07); SUMMARYs on disk are skipped
 ## Gate
 none — D-12 (19:10) answered both: queue file sanctioned for coordinates (protected, backup-excluded,
@@ -20,5 +20,5 @@ Signature: rule4:phase03:plans0/12:verifnone
 ## Session
 Stopped: session turn cap, mid-phase at a clean boundary — waves 1-2 committed, tree clean,
   orchestrator gate green at 9fec0d7 (123 tests/14 suites). Nothing half-written.
-Resume: /flow-execute 3 (skips the 5 plans with SUMMARYs). Stage by explicit path in shared
-  waves. 3 backstop truths still open; 11 phase-02 on-screen checks still open.
+Resume: /flow-execute 3 (skips the 5 plans with SUMMARYs). Give each parallel plan its own
+  worktree. 3 backstop truths still open; 11 phase-02 on-screen checks still open.

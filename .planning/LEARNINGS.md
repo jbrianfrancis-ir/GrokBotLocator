@@ -40,11 +40,16 @@
   never says "UserDefaults", `CLBackgroundActivitySession` never says "CLLocationManager", and an
   anchored `.font(` pattern misses `.system(size:)` on the next line. A guard with no probe only
   proves nobody has yet written the string it happens to match.
-- Parallel executors sharing one checkout must stage by explicit path. `git add -A`/`-a` takes
-  whatever a sibling left staged: in phase 03 wave 2 it happened three times — 03-01's commit
-  swept 03-04's staged tests, 03-01 then nearly destroyed them "fixing" it (reverted in time),
-  and 03-01's own SUMMARY landed under a 03-04 commit. Code stayed correct; attribution did not.
-  Never rewrite shared history to repair this — document it and move on.
+- Parallel executors in ONE checkout cannot commit safely, and explicit-path staging does not
+  save them: the git *index* is shared, so `git commit` takes a sibling's already-staged files
+  no matter how careful your own `git add` was. Phase 03 wave 2 hit this 4x — 03-01 staged two
+  named test files and still swept 03-04's; 03-01 then nearly destroyed that work "fixing" it
+  (caught by reading 03-04's SUMMARY first); later a SUMMARY rode under the wrong plan's commit,
+  twice. Code stayed correct every time; only attribution crossed. Never rewrite shared history
+  to repair it — 3 commits were already on top. The real fix is one worktree per parallel plan
+  (`/flow-workstream`), not commit hygiene. Until then, expect crossed trailers in any wave >1
+  plan and reconcile from SUMMARY frontmatter (`plan:`), which is authoritative, not from
+  commit messages, which are not.
 - Per-plan `SMOKE_DERIVED_DATA` isolates the build LOG, not the SOURCES. Every plan's gate is a
   whole-project build, so within a wave it compiles every sibling's in-flight edits and a plan
   cannot observe its own gate green until the whole wave lands. The wave gate belongs to the
