@@ -4,7 +4,7 @@ plan: 02-07
 status: complete
 agent: executor/claude/claude-opus-5
 commits: [fa3273a, 859263a, e3d6a10]
-deviations: []
+deviations: ["@unchecked Sendable on UserDefaultsPingLabelStore — UserDefaults is thread-safe but not SDK-marked Sendable", "one-key test uses persistentDomain(forName:) — dictionaryRepresentation() merges ~29 domain keys, never reads as 1"]
 human_checks: []
 deferred: []
 ---

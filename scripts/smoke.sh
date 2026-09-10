@@ -48,6 +48,22 @@ if [[ -n "$CORELOCATION_HITS" ]]; then
     exit 1
 fi
 
+echo "==> UserDefaults guard: the UserDefaults API confined to PingLabelStore.swift"
+LABEL_STORE="src/Ping/PingLabelStore.swift"
+
+# Matches the UserDefaults API, not the UserDefaultsPingLabelStore type name (legal at the
+# composition root) and not doc comments. PingLabelStore.swift's own header claims this guard
+# exists; before 2026-09-10 it did not, which is why the claim is now enforced rather than
+# asserted. ARCHITECTURE: credentials live only in the Keychain -- a typed label is neither a
+# credential nor a coordinate, so one caller is allowed and a second needs a decision.
+USERDEFAULTS_HITS=$(grep -rn 'UserDefaults' src --include='*.swift' 2>/dev/null     | grep -v "^${LABEL_STORE}:"     | grep -v 'UserDefaultsPingLabelStore'     | grep -vE '^[^:]*:[0-9]+: *(///|//|\*)' || true)
+
+if [[ -n "$USERDEFAULTS_HITS" ]]; then
+    echo "UserDefaults guard failed -- the UserDefaults API must appear only in ${LABEL_STORE} (a second caller is a decision, not a detail):" >&2
+    echo "$USERDEFAULTS_HITS" >&2
+    exit 1
+fi
+
 echo "==> xcodegen generate"
 xcodegen generate
 

@@ -7,10 +7,10 @@ deviations: []
 human_checks:
   - "Ping screen at AX5, light and dark: title wraps, notice/guidance/reason wrap, gear >= 60pt and not over the scrolling content, \"I'm here\" full-width in the bottom third. REQ-12's audit is 02-13's."
   - "Chrome bar: history blurred under it with Reduce Transparency off, flat opaque with it (or Increase Contrast) on."
-  - "A real ping shows a spinner beside \"Pinging…\", ignores a 2nd tap, is spoken by VoiceOver."
+  - "A real ping shows a spinner beside \"Pinging…\", ignores a 2nd tap, is read by VoiceOver."
 deferred: []
 ---
-`PingOutcomeRow` gained `var reason: String? = nil`, rendered between badge and label at
+`PingOutcomeRow` gained `var reason: String? = nil`, rendered between badge and label,
 `.dsFont(.body)` — `.secondary` would put a failure reason on the 17pt floor. No line cap in the
 file; its a11y label speaks outcome, label, coordinates, reason.
 
