@@ -1,0 +1,47 @@
+name: GrokBotLocator
+options:
+  deploymentTarget:
+    iOS: "26.0"
+
+targets:
+  GrokBotLocator:
+    type: application
+    platform: iOS
+    sources:
+      - src
+    settings:
+      base:
+        SWIFT_VERSION: "6.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait"
+        # Without a UILaunchScreen, iOS runs the app letterboxed in compatibility mode and
+        # never hands it the full screen. Generation: YES emits the empty dict that opts in.
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_ENTITLEMENTS: GrokBotLocator.entitlements
+    configFiles:
+      Debug: Signing.xcconfig
+      Release: Signing.xcconfig
+
+  GrokBotLocatorTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - tests
+    dependencies:
+      - target: GrokBotLocator
+    settings:
+      base:
+        SWIFT_VERSION: "6.0"
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  GrokBotLocator:
+    build:
+      targets:
+        GrokBotLocator: all
+        GrokBotLocatorTests: [test]
+    test:
+      targets:
+        - GrokBotLocatorTests

@@ -1,0 +1,20 @@
+{
+  "mode": "interactive",
+  "commit_docs": true,
+  "agents": {
+    "provider": "native"
+  },
+  "deploy": {
+    "tool": null
+  },
+  "design": {
+    "system": "self-authored",
+    "file": ".planning/DESIGN.md"
+  },
+  "git": {
+    "base": "main",
+    "origin": "origin",
+    "upstream": null,
+    "branch": "flow/grok-bot-locator"
+  }
+}

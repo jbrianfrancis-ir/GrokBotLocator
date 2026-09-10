@@ -1,0 +1,19 @@
+# Xcode / generated project
+*.xcodeproj/
+*.xcworkspace/
+DerivedData/
+build/
+*.xcuserstate
+xcuserdata/
+
+# Signing — team id, bundle id, and profiles never enter the repo
+Signing.xcconfig
+*.mobileprovision
+*.p12
+*.cer
+
+# macOS
+.DS_Store
+
+# nodeterm canvas state (machine-local)
+.nodeterm/
