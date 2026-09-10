@@ -7,6 +7,12 @@ import SwiftUI
 /// `PendingPingSink`, `PingLabelStore` and `PingSending` as protocols only
 /// (ARCHITECTURE.md -- transport and storage are protocol-backed and injected).
 ///
+/// The one bounded `URLSession` the app owns is built here too, like every other concrete
+/// dependency. `URLSessionPingTransport.init(session:)` has no default for exactly this
+/// reason: a default is how the app's session went back to an unbounded one before, so the
+/// composition root must name the bounded session explicitly rather than let the transport
+/// reacquire one by omission.
+///
 /// The explicit `init()` is structural, not stylistic. A `@State` property's default-value
 /// expression cannot reference another property of the same struct, so two independent `@State`
 /// initialisers could neither compile against each other nor share one `PingSender`. Building
@@ -22,7 +28,8 @@ struct GrokBotLocatorApp: App {
         let store = KeychainCredentialStore()
         let fixes = CoreLocationFixProvider()
         let sender = PingSender(
-            credentials: store, fixes: fixes, transport: URLSessionPingTransport(),
+            credentials: store, fixes: fixes,
+            transport: URLSessionPingTransport(session: WebhookSession.make()),
             pending: UnqueuedPingSink())
         _pingModel = State(
             wrappedValue: PingModel(
