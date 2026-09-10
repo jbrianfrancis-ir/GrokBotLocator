@@ -15,6 +15,5 @@ onto the attempt; every other path (`.sent`, any `.permanentFailure`) carries `q
 Task 1 also repaired `FakeSink`'s broken `.queued` default, same commit (9e656ce).
 Task 2's four tests (pinning all dispositions for whether they carry an id) landed in 9441a8f --
 see deviations.
-Full-tree smoke observed green once with both tasks' code present: "122 tests in 14 suites
-passed"; log confirms all four new tests by name. Not re-verified at HEAD (58f8f65) -- team
-lead re-runs the wave gate at fan-in per their no-loop instruction.
+Full-tree smoke re-run after all four sibling plans landed, at HEAD 9fec0d7: green, "123 tests
+in 14 suites passed"; log confirms all four new tests by name.
