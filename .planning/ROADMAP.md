@@ -36,7 +36,7 @@ Three backstop truths also remain unverified by design — the non-401/403 4xx r
 the app prepends `Bearer `, and what a negative `horizontalAccuracy` means. Each needs a rule
 stated in REQUIREMENTS.md, then a test.
 
-| 03 | Durable delivery | Offline queue, backoff retry, connectivity observation, failure classification — no ping is lost on Italian roaming | REQ-05, SC-02 | planned |
+| 03 | Durable delivery | Offline queue, backoff retry, connectivity observation, failure classification — no ping is lost on Italian roaming | REQ-05, SC-02 | executed, acceptance open |
 
 ### Carried out of phase 03 — REQ-05's fourth drain opportunity
 REQ-05 names four opportunities the queue may drain on: connectivity returning while the app is

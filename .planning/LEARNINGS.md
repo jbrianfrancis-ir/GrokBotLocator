@@ -61,3 +61,10 @@
   ("Mutation of captured var ... in concurrently-executing code") even when a lock serializes it.
   Prefer `Synchronization.Mutex<T>`, which is genuinely `Sendable` and lets the compiler prove
   `withLock` safe, over an `NSLock` + `@unchecked Sendable` box, which only asserts it.
+- `drainBackground()` applies updates with `announcing: true`, so a background-wake outcome sets
+  `lastAttempt` and can announce a result for a tap the user never made. No phase-03 truth forbids
+  it — only launch hydration is required to be silent — but phase 04's location wake lands on that
+  same coordinator, so decide it there rather than discovering it on a device.
+- A test that pins an implemented choice is not the same as a rule. All three of phase 03's
+  backstop truths HAVE tests; they stop drift, they do not settle whether the choice is right.
+  An abstention is lifted by a human stating the rule, never by a green test.
