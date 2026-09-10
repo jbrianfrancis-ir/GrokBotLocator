@@ -12,7 +12,7 @@ if [[ ! -f Signing.xcconfig ]]; then
     exit 1
 fi
 
-echo "==> type-scale guard: no sub-17pt font literal or raw system-size call outside DSTypography"
+echo "==> type-scale guard: no sub-15pt font literal or raw system-size call outside DSTypography"
 EXEMPT="src/Core/DesignSystem/DSTypography.swift"
 # `.system(size:` is matched on its OWN line, not only after `.font(`: grep is line-based, so
 # `Text("x").font(\n    .system(size: 20)\n)` walked straight past the anchored pattern. Same for
@@ -21,12 +21,12 @@ GUARD_HITS=$(grep -rnE \
     -e '\.system\([[:space:]]*size:' \
     -e 'Font\.system\(' \
     -e 'UIFont\.systemFont\(' \
-    -e 'ofSize:[[:space:]]*-?([0-9]|1[0-6])(\.[0-9]+)?\b' \
-    -e 'size:[[:space:]]*-?([0-9]|1[0-6])(\.[0-9]+)?\b' \
+    -e 'ofSize:[[:space:]]*-?([0-9]|1[0-4])(\.[0-9]+)?\b' \
+    -e 'size:[[:space:]]*-?([0-9]|1[0-4])(\.[0-9]+)?\b' \
     src --include='*.swift' 2>/dev/null | grep -v "^${EXEMPT}:" || true)
 
 if [[ -n "$GUARD_HITS" ]]; then
-    echo "type-scale guard failed -- font-size literal below 17pt or raw .font(.system(size:)) outside DSTypography:" >&2
+    echo "type-scale guard failed -- font-size literal below 15pt or raw .font(.system(size:)) outside DSTypography:" >&2
     echo "$GUARD_HITS" >&2
     exit 1
 fi

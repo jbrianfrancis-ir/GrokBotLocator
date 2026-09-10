@@ -12,7 +12,7 @@
 - REQ-09: Per-trigger on/off switches plus a minimum-interval rate limit with a hard 15 s floor enforcing SC-04 — accept: at the 60 s default, two trigger events 20 s apart produce one ping; the interval cannot be set below 15 s.
 - REQ-10: Authorization requested at point of use with a purpose string; manual pings work at "When In Use", "Always" requested only when a trigger is enabled — accept: denying "Always" leaves the button working and explains what is unavailable.
 - REQ-11: "Test connection" in settings sends a ping and surfaces the exact HTTP status and body — accept: a wrong key shows a visible 401/403, never a silent failure.
-- REQ-12: Every screen meets `DESIGN.md` — Dynamic Type to AX5 without truncation, body text ≥ 20pt, tap targets ≥ 60pt, outcome shown as symbol + word + colour, light and dark both contrast-verified — accept: at AX5 in both appearances no text clips or overlaps, and the Accessibility Inspector audit reports no contrast or hit-target failures.
+- REQ-12: Every screen meets `DESIGN.md` — Dynamic Type to AX5 without truncation, body text ≥ 17pt (was ≥ 20pt until D-13), tap targets ≥ 60pt, outcome shown as symbol + word + colour, light and dark both contrast-verified — accept: at AX5 in both appearances no text clips or overlaps, and the Accessibility Inspector audit reports no contrast or hit-target failures.
 
 ## Success criteria
 - SC-01: A manual ping goes tap → confirmed delivery in under 10 s on a normal mobile connection.
