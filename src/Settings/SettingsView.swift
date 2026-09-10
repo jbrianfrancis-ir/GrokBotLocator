@@ -182,8 +182,17 @@ private final class PreviewCredentialStore: CredentialStore, @unchecked Sendable
     func clear() throws { stored = nil }
 }
 
+/// A preview-only sender that answers with a fixed attempt and touches no network. It exists
+/// because `connectionReport` is `private(set)`: a `#Preview` cannot assign a report, so it has
+/// to produce one the way the app does -- through `testConnection()`.
+private struct StubPingSending: PingSending {
+    let attempt: PingAttempt
+
+    func send(label: String) async -> PingAttempt { attempt }
+}
+
 @MainActor
-private func previewModel(hasStoredKey: Bool) -> SettingsModel {
+private func previewModel(hasStoredKey: Bool, sender: PingSending? = nil) -> SettingsModel {
     let store = PreviewCredentialStore(
         stored: hasStoredKey
             ? WebhookCredentials(
@@ -192,10 +201,46 @@ private func previewModel(hasStoredKey: Bool) -> SettingsModel {
                 headerName: WebhookCredentials.defaultHeaderName)
             : nil
     )
-    let model = SettingsModel(store: store)
+    let model = SettingsModel(store: store, sender: sender)
     model.load()
     return model
 }
+
+/// Drives one `testConnection()` as the canvas appears so the report is on screen by the time
+/// the preview draws. Preview scaffolding only -- in the app the button is what runs a test.
+private struct PreviewTestedSettings: View {
+    @State private var model: SettingsModel
+
+    @MainActor
+    init(hasStoredKey: Bool, attempt: PingAttempt) {
+        _model = State(
+            initialValue: previewModel(
+                hasStoredKey: hasStoredKey, sender: StubPingSending(attempt: attempt)))
+    }
+
+    var body: some View {
+        SettingsView(model: model)
+            .task { await model.testConnection() }
+    }
+}
+
+/// A wrong sender key as the webhook actually answers it: `PingClassifier`'s own 401 sentence,
+/// the exact code, and a multi-line body -- so the AX5 previews show the body wrapping rather
+/// than a short line that would have fitted anyway.
+private let previewUnauthorizedAttempt = PingAttempt(
+    fix: nil,
+    disposition: .permanentFailure(
+        reason:
+            "Rejected by the webhook (HTTP 401). Check the sender key and header name in Settings."
+    ),
+    statusCode: 401,
+    responseBody: """
+        {
+          "error": "unauthorized",
+          "detail": "the value in the Authorization header did not match the routine's own"
+        }
+        """
+)
 
 #Preview("Light — default") {
     NavigationStack {
@@ -220,6 +265,27 @@ private func previewModel(hasStoredKey: Bool) -> SettingsModel {
 #Preview("Dark — AX5") {
     NavigationStack {
         SettingsView(model: previewModel(hasStoredKey: false))
+    }
+    .preferredColorScheme(.dark)
+    .environment(\.dynamicTypeSize, .accessibility5)
+}
+
+#Preview("Light — test 401") {
+    NavigationStack {
+        PreviewTestedSettings(hasStoredKey: true, attempt: previewUnauthorizedAttempt)
+    }
+}
+
+#Preview("Light — test 401, AX5") {
+    NavigationStack {
+        PreviewTestedSettings(hasStoredKey: true, attempt: previewUnauthorizedAttempt)
+    }
+    .environment(\.dynamicTypeSize, .accessibility5)
+}
+
+#Preview("Dark — test 401, AX5") {
+    NavigationStack {
+        PreviewTestedSettings(hasStoredKey: true, attempt: previewUnauthorizedAttempt)
     }
     .preferredColorScheme(.dark)
     .environment(\.dynamicTypeSize, .accessibility5)
