@@ -53,6 +53,26 @@ final class PingModel {
     private(set) var lastAttempt: PingAttemptFeedback?
     private var attemptSequence = 0
 
+    /// Whether the badge beside the button should render at all.
+    ///
+    /// `false` when the newest history row already says the same thing, which is the common
+    /// case right after a tap: one row sits a few hundred points above the button carrying the
+    /// same symbol, word and colour, and the badge is then the same outcome twice on one screen.
+    /// It stays `true` on the paths that record no row -- a refused fix, a denied authorization
+    /// -- where the badge is the ONLY report of what the tap did, which is what 02-12 added it
+    /// for.
+    ///
+    /// Compares outcome and reason rather than an identifier: `PingAttemptFeedback` carries no
+    /// entry id, and adding one would touch every construction site to answer a question about
+    /// what is on screen. `sequence` is deliberately NOT compared -- it exists to make two
+    /// identical outcomes distinct events for the announcement, and the question here is the
+    /// opposite one, whether the row displays this same thing.
+    var showsLastAttemptBadge: Bool {
+        guard let attempt = lastAttempt else { return false }
+        guard let newest = log.entries.first else { return true }
+        return !(newest.outcome == attempt.outcome && newest.reason == attempt.reason)
+    }
+
     /// Argument labels and order are pinned -- 02-13's call site writes them verbatim.
     init(sender: PingSending, labelStore: PingLabelStore, fixes: LocationFixProvider) {
         self.sender = sender
