@@ -3,7 +3,7 @@
 ## Position
 Phase: 2 of 4 MERGED (PR #2, 76fd308) — integrated, NOT verified | main green 107/12
 Last: 2026-09-10 — PR #2 merged 19:04Z, 11 checks unrun. Review fixed 9 defects, incl. a redirect leaking key+coords while showing "Sent".
-Next: /flow-plan 3 — its FIRST task is the 5th payload key
+Next: merge PR #3 (D-12 amendment), then /flow-plan 3 — task 1 is the 5th payload key
 ## Gate
 none — D-12 (19:10) answered both: queue file sanctioned for coordinates (protected, backup-excluded,
 deleted on delivery); wire format gains `at` (ISO-8601 time of the FIX) as a 5th pinned key.
@@ -18,7 +18,7 @@ Signature: rule6:phase03:plans0/0:verifnone
 ## Blockers
 - none
 ## Session
-Stopped: on main at 76fd308. Planning edits UNCOMMITTED (base-branch commits forbidden);
-  phase 03's branch picks them up.
+Stopped: PR #3 open — https://github.com/jbrianfrancis-ir/GrokBotLocator/pull/3 (D-12
+  amendment + phase 02's post-merge record). Docs only, no CI on this repo.
 Resume: /flow-plan 3. The 5-key wire change is phase 03 task 1 — the app still sends 4 keys, so
   run REQ-02's acceptance check after it lands. LEARNINGS.md has the timeout/body remediation.
