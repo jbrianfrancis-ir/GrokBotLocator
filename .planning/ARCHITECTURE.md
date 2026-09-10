@@ -19,7 +19,7 @@
 
 ## Smoke
 - **Command**: `./scripts/smoke.sh` — `xcodegen generate`, build for an iOS 26 simulator, run the test bundle.
-- **Pass looks like**: exit 0; `** TEST SUCCEEDED **`; encoder test asserts `{"lat":<num>,"lng":<num>,"accuracy_m":<num>,"label":<string>}`.
+- **Pass looks like**: exit 0; `** TEST SUCCEEDED **`; encoder test asserts `{"lat":<num>,"lng":<num>,"accuracy_m":<num>,"label":<string>,"at":<string>}` in that order.
 
 ## Frameworks & libraries (all iOS 26 SDK, no third-party)
 - CoreLocation — fixes, significant-change, visits, `CLMonitor` regions
@@ -33,10 +33,28 @@
 - App code under `src/`, tests under `tests/`; `project.yml` and `scripts/` at the root.
 - Feature folders under `src/` (`Settings/`, `Ping/`, `Triggers/`, `Queue/`) plus `Core/` for Keychain/payload/transport.
 - Offline queue is a `Codable` array in Application Support via `FileManager` — no SwiftData, no Core Data. The file is the durability mechanism; drain on every wake with a plain `URLSession`. `URLSessionConfiguration.background` is not the primary path.
+- **The queue file is the one sanctioned store for coordinates** (D-12, 2026-09-10). It is the single
+  exception to the Forbidden entry below, and it is narrow: written with
+  `.completeFileProtectionUnlessOpen`, excluded from backups (`isExcludedFromBackup`), each entry
+  deleted the moment it is delivered, and never copied anywhere else. A queue that keeps delivered
+  pings is a location history, which is not what this is for.
 - All location work sits in one actor-isolated coordinator; views never touch `CLLocationManager`.
 
 ## Infrastructure (Azure / Aspire resources)
 - **None.** No server, no deployable surface. The webhook receiver is Grok-hosted; the app ships via Xcode/TestFlight.
+
+## Wire format (pinned — the smoke gate asserts it byte for byte)
+```
+{"lat":<num>,"lng":<num>,"accuracy_m":<num>,"label":<string>,"at":<ISO-8601 string>}
+```
+Keys in exactly that order. `JSONEncoder` does **not** serialize in declaration order — key order is
+non-deterministic per process, measured over six runs on the iOS 26 simulator — so `PingPayload`
+composes these bytes itself and delegates only string escaping to Foundation.
+
+`at` is the time of the **fix**, not the time of the POST. Added 2026-09-10 (D-12) because REQ-05
+queues a ping that may be delivered a wake later: without it a ping drained on Tuesday arrives
+indistinguishable from a fresh fix, and SC-02 explicitly accepts that lag, which means the receiver
+has to be able to tell. A drained ping reports where the phone **was**, and when.
 
 ## Environment (names only — never values)
 | Var / parameter | Source | Used by |
@@ -51,7 +69,7 @@
 ## Forbidden
 - Any third-party dependency manager or package.
 - Continuous background GPS (`startUpdatingLocation` + `allowsBackgroundLocationUpdates`).
-- Storing or logging the sender key, the webhook URL, or raw coordinates.
+- Storing or logging the sender key, the webhook URL, or raw coordinates — **except** the offline queue file described above, which is the one sanctioned store (D-12). Logs, analytics, `UserDefaults`, and the in-memory history remain off limits: the history list is session-only for exactly this reason.
 - Committing `DEVELOPMENT_TEAM`, a bundle id, or a provisioning profile.
 - Force-unwrapping a `CLLocation` or a network response.
 - Liquid Glass behind body text, credential fields, or the primary action (chrome only — see `DESIGN.md`).

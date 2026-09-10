@@ -1,4 +1,3 @@
-<!-- Append-only journal history. Chronological, oldest first. Never dropped. -->
-# Journal — 2026
-- 2026-09-09 | /flow-new | initialized GrokBotLocator: 4 phases, 12 REQs, 6 SCs; markers resolved; DESIGN.md written; private origin created and pushed | CONTINUE
-- 2026-09-09 | /flow-plan 1 | PASS — 12 plans, 29 findings across 5 rounds, zero regressions; 4 execution-blocking defects found by running the toolchain | CONTINUE
+
+- 2026-09-10 | /flow-pr | PR #1 opened (https://github.com/jbrianfrancis-ir/GrokBotLocator/pull/1) — 6-lens review, 2 rounds; 1 blocking fixed, 1 refuted by human; 4 fixes + regression test, smoke 22 green | CONTINUE
+- 2026-09-10 | /flow-ci | PR #1 MERGEABLE/CLEAN — 0 checks (repo has no .github/workflows), 0 review threads; nothing to drive, awaiting human review/merge | GATE
