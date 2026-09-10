@@ -4,6 +4,9 @@ import Foundation
 /// thrown error beats a force-unwrap (ARCHITECTURE.md Forbidden).
 enum PingTransportError: Error, Equatable {
     case notAnHTTPResponse
+    /// The credentials would not produce an authenticated request: an empty key or header name, or
+    /// a non-https URL. Refused rather than sent, per ARCHITECTURE's fail-fast rule.
+    case incompleteCredentials
 }
 
 /// The one type in the app that talks to the network: a single POST of `payload.encoded()`
@@ -18,6 +21,21 @@ struct URLSessionPingTransport: PingTransport {
     }
 
     func send(_ payload: PingPayload, using credentials: WebhookCredentials) async throws -> PingResponse {
+        // Fail CLOSED. ARCHITECTURE: "Missing URL, key, or header: refuse to send ... never a
+        // default endpoint or empty key." That rule was enforced only by the settings form, and
+        // below it nothing held the line: `KeychainCredentialStore.load()` returns credentials
+        // whenever the items merely exist, so an empty key or header round-trips as valid, and
+        // `PingSender` checks only for nil. It matters because CFNetwork DROPS a header whose name
+        // or value holds a control character -- measured -- so the ping would leave with the
+        // coordinates and no credential header at all, and a permissive endpoint would accept it
+        // and report "Sent". The scheme is re-checked here too, since the https guarantee also
+        // lived only in the form.
+        guard !credentials.senderKey.isEmpty, !credentials.headerName.isEmpty,
+            credentials.url.scheme == "https"
+        else {
+            throw PingTransportError.incompleteCredentials
+        }
+
         var request = URLRequest(url: credentials.url)
         request.httpMethod = "POST"
         request.timeoutInterval = 10
