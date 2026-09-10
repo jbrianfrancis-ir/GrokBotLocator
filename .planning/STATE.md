@@ -25,10 +25,8 @@ Signature: none
 - none
 
 ## Session
-Stopped: PR #1 MERGEABLE/CLEAN, 0 reviews, 0 threads. NOTE: repo has NO .github/workflows —
-  zero CI checks exist, so "clean" means unverified-by-CI, not verified. scripts/smoke.sh is
-  the only gate and runs locally only.
-Resume: review + merge are human; after merge /flow-next (deploy.tool null — no UAT/release). Carry forward: ACTION — re-save
-  credentials once on the iPhone to migrate existing Keychain items to ThisDeviceOnly.
-  ~15 should-fix findings documented in the PR body, not fixed. D-03 still OPEN (free personal
-  team; profile expires 2026-09-16). No .planning/codebase/MAP.md (greenfield).
+Stopped: PR #1 MERGEABLE/CLEAN, 0 reviews/threads. Repo has NO .github/workflows — zero CI
+  checks, so "clean" = unverified-by-CI. smoke.sh is the only gate, local only.
+Resume: review+merge are human; after merge /flow-next (deploy.tool null — no UAT/release).
+  ACTION: re-save credentials once on the iPhone to migrate Keychain items to ThisDeviceOnly.
+  ~15 should-fix findings in the PR body, unfixed. D-03 OPEN (free team, expires 2026-09-16).
