@@ -6,11 +6,14 @@
 | 02 | Manual ping | Authorization flow, one-shot fix, payload encoder, POST, history list, test-connection — the "I'm here" button works end to end | REQ-02, REQ-03, REQ-04, REQ-10, REQ-11, SC-01 | pending |
 
 ### Carried into phase 02 from phase 01
-Three phase-01 acceptance checks were deferred, not waived. Each covers a component that phase 01
-built but never gave a call site, so today it can only be judged in an Xcode preview — which proves
-less than judging it where it actually ships. Phase 02 wires all three into real screens; verify them
-**there**, on-screen, and close them in phase 02's VERIFICATION:
-- **PingButton** — pressed state visibly changes the fill; in flight a spinner sits beside a changed word; VoiceOver reads label + in-flight state. (Phase 02 gives it the "I'm here" button.)
+Three phase-01 acceptance checks were deferred, not waived. Phase 02 wires all three into real
+screens; verify them **there**, on-screen, and close them in phase 02's VERIFICATION.
+
+*Rationale corrected 2026-09-10 (pre-PR review):* this section previously said all three components
+"never got a call site". That holds for PingOutcomeRow and DSChrome (both confirmed zero call sites)
+but **not** for PingButton, which `SettingsView.swift:54` calls in production. Only its in-flight
+state is unreachable.
+- **PingButton** — in flight a spinner sits beside a changed word; VoiceOver reads label + in-flight state. **Only the in-flight half is deferred**: nothing outside the component's own `#Preview` sets `isInFlight`. The pressed state was already reachable at `SettingsView.swift:54` in phase 01. (Phase 02 gives it the "I'm here" button.)
 - **PingOutcomeRow** — at AX5, light and dark, symbol + word + colour all present, reflowing with no clipping. (Phase 02 gives it the history list.)
 - **DSChrome** — with Reduce Transparency on, or contrast increased, it resolves to a fully opaque fill instead of `.thinMaterial`. Phase 01 left `.dsChrome()` with **zero call sites**, so its production path has never run; the first screen to adopt it must re-verify for real, not by preview.
 | 03 | Durable delivery | Offline queue, backoff retry, connectivity observation, failure classification — no ping is lost on Italian roaming | REQ-05, SC-02 | pending |
