@@ -10,6 +10,9 @@ struct PingOutcomeRow: View {
     let longitude: Double
     let label: String
     let outcome: PingOutcome
+    /// Why a `.failed` row failed, as a finished sentence. Defaulted, so a `.sent` row -- which
+    /// never has one -- and every existing call site keep their shorter initialiser.
+    var reason: String? = nil
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -22,6 +25,16 @@ struct PingOutcomeRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: DSMetrics.spacingBase) {
             outcomeBadge
+
+            // Body size, not `.secondary`: DESIGN.md requires a failure to say what happened and
+            // what to do next in body-size text on screen, and `.secondary` would put a failure
+            // reason on the 17pt floor meant for coordinates and timestamps. Nothing in this
+            // file caps a line count, so the sentence wraps to as many lines as AX5 needs.
+            if let reason {
+                Text(reason)
+                    .dsFont(.body)
+                    .foregroundStyle(DSPalette.body.foreground(for: colorScheme))
+            }
 
             Text(label)
                 .dsFont(.body)
@@ -37,7 +50,17 @@ struct PingOutcomeRow: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(outcome.word): \(label)")
+        .accessibilityLabel(spokenText)
+    }
+
+    /// What VoiceOver reads for the whole row: outcome, label, coordinates, and -- when the row
+    /// carries one -- the reason. The reason has to be in here, not only in the `Text` above:
+    /// a failure sentence that is drawn but not spoken is visual-only, which is exactly what
+    /// DESIGN.md's "errors state what happened and what to do next" rules out.
+    private var spokenText: String {
+        var parts = ["\(outcome.word): \(label)", coordinateText]
+        if let reason { parts.append(reason) }
+        return parts.joined(separator: ". ")
     }
 
     /// Symbol + word on the outcome's own opaque fill -- the pair DesignSystemContrastTests
@@ -91,6 +114,12 @@ enum PingOutcome {
     }
 }
 
+/// A real webhook rejection, not a placeholder word: the same sentence `PingClassifier` hands a
+/// 401, long enough that the AX5 previews below show it wrapping rather than a short line that
+/// would have fitted anyway.
+private let previewFailureReason =
+    "Rejected by the webhook (HTTP 401). Check the sender key and header name in Settings."
+
 private struct PingOutcomeRowPreviewStack: View {
     var body: some View {
         ScrollView {
@@ -114,7 +143,35 @@ private struct PingOutcomeRowPreviewStack: View {
                     latitude: 40.77465,
                     longitude: 17.23107,
                     label: "Manual ping",
-                    outcome: .failed
+                    outcome: .failed,
+                    reason: previewFailureReason
+                )
+            }
+            .padding(DSMetrics.screenMargin)
+        }
+    }
+}
+
+/// Just the two rows that have to reflow -- a `.queued` badge and a `.failed` row carrying its
+/// reason -- so the AX5 previews below show the wrap without scrolling past a `.sent` row first.
+private struct PingOutcomeReasonPreviewStack: View {
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: DSMetrics.groupGap) {
+                PingOutcomeRow(
+                    timestamp: Date(timeIntervalSince1970: 1_700_000_600),
+                    latitude: 40.77465,
+                    longitude: 17.23107,
+                    label: "Automatic ping — left region",
+                    outcome: .queued
+                )
+                PingOutcomeRow(
+                    timestamp: Date(timeIntervalSince1970: 1_700_001_200),
+                    latitude: 40.77465,
+                    longitude: 17.23107,
+                    label: "Manual ping",
+                    outcome: .failed,
+                    reason: previewFailureReason
                 )
             }
             .padding(DSMetrics.screenMargin)
@@ -138,6 +195,17 @@ private struct PingOutcomeRowPreviewStack: View {
 
 #Preview("Dark — AX5") {
     PingOutcomeRowPreviewStack()
+        .preferredColorScheme(.dark)
+        .environment(\.dynamicTypeSize, .accessibility5)
+}
+
+#Preview("Reason — Light, AX5") {
+    PingOutcomeReasonPreviewStack()
+        .environment(\.dynamicTypeSize, .accessibility5)
+}
+
+#Preview("Reason — Dark, AX5") {
+    PingOutcomeReasonPreviewStack()
         .preferredColorScheme(.dark)
         .environment(\.dynamicTypeSize, .accessibility5)
 }

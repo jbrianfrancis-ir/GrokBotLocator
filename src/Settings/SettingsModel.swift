@@ -14,6 +14,16 @@ final class SettingsModel {
         case error(String)
     }
 
+    /// What the webhook answered to a test connection, carried verbatim for REQ-11: the exact
+    /// status code and the exact body text, never collapsed into a category and never replaced
+    /// by a placeholder word. Both are nil only when no response came back at all.
+    struct ConnectionReport: Equatable, Sendable {
+        let succeeded: Bool
+        let headline: String
+        let statusCode: Int?
+        let responseBody: String?
+    }
+
     var urlText: String = ""
     var senderKey: String = ""
     var headerName: String = WebhookCredentials.defaultHeaderName
@@ -21,14 +31,23 @@ final class SettingsModel {
     /// stored key to `senderKey` -- 01-12 renders its saved indicator from this instead.
     private(set) var hasStoredKey = false
     var status: Status = .idle
+    /// The last test connection's result, or nil before one has run. 02-11 renders it.
+    private(set) var connectionReport: ConnectionReport?
+    /// True for exactly the span of one `testConnection()`, so the view can show a test in
+    /// flight and a second call while one is running is ignored outright.
+    private(set) var isTesting = false
 
     private let store: CredentialStore
+    /// Optional so every existing call site and test builds a model without one; the app
+    /// passes the same `PingSender` the home screen's button uses (02-13).
+    private let sender: PingSending?
 
     /// Depends on the `CredentialStore` protocol only -- never constructs a
     /// `KeychainCredentialStore` itself -- so tests inject a fake and the real Keychain is
     /// never touched outside the app.
-    init(store: CredentialStore) {
+    init(store: CredentialStore, sender: PingSending? = nil) {
         self.store = store
+        self.sender = sender
     }
 
     /// Fills `urlText` and `headerName` from the store. Never assigns the stored key to
@@ -113,6 +132,46 @@ final class SettingsModel {
         } catch {
             status = .error("Could not clear the Keychain — try again.")
         }
+    }
+
+    /// REQ-11: send one real ping through the same `PingSending` the home screen's button uses
+    /// -- not a second code path -- and report exactly what the webhook answered, so a wrong
+    /// key shows its 401/403 instead of failing silently. A test connection is a diagnostic,
+    /// not a logged ping: nothing here writes to the ping history. Leaves `status` alone --
+    /// that field belongs to `save()` and `clear()`.
+    func testConnection() async {
+        guard !isTesting else { return }
+        guard let sender else {
+            connectionReport = ConnectionReport(
+                succeeded: false, headline: "Test connection is unavailable in this build.",
+                statusCode: nil, responseBody: nil)
+            return
+        }
+
+        isTesting = true
+        defer { isTesting = false }
+
+        // This screen has no label field, so the literal is what distinguishes a diagnostic
+        // ping from a real one at the receiving end.
+        let attempt = await sender.send(label: "Test connection")
+
+        let succeeded: Bool
+        let headline: String
+        switch attempt.disposition {
+        case .sent:
+            succeeded = true
+            headline = "The webhook accepted the test ping."
+        case .permanentFailure(let reason), .retryable(let reason):
+            // The reason is already a finished sentence naming the status code (DESIGN.md).
+            succeeded = false
+            headline = reason
+        }
+
+        // Status and body pass straight through: an empty body stays an empty string, a
+        // missing one stays nil, and a long one arrives whole -- REQ-11 shows what came back.
+        connectionReport = ConnectionReport(
+            succeeded: succeeded, headline: headline, statusCode: attempt.statusCode,
+            responseBody: attempt.responseBody)
     }
 
     /// `nil` unless `text` trims to a parseable URL with an `https` scheme and a non-empty

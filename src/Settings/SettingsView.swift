@@ -5,10 +5,10 @@ import SwiftUI
 /// `CredentialField`s bind straight to `SettingsModel`; the sender key never carries a stored
 /// value back into the view (D-10), only `model.hasStoredKey` does. The save action sits in
 /// the bottom third for one-handed reach: a `GeometryReader` gives the content a `minHeight`
-/// (never a fixed height) so a trailing `Spacer` pushes the outcome/save/clear group down when
-/// the screen has room, while AX5's taller content simply scrolls past that minimum. No glass
-/// anywhere here -- every fill is an opaque `DSPalette` pair, matching CredentialField and
-/// PingButton; navigation chrome is the system's own and needs no code from this file.
+/// (never a fixed height) so a trailing `Spacer` pushes the outcome/save/clear/test group down
+/// when the screen has room, while AX5's taller content simply scrolls past that minimum. No
+/// glass anywhere here -- every fill is an opaque `DSPalette` pair, matching CredentialField
+/// and PingButton; navigation chrome is the system's own and needs no code from this file.
 struct SettingsView: View {
     @Bindable var model: SettingsModel
 
@@ -35,7 +35,9 @@ struct SettingsView: View {
                             label: "Sender key",
                             text: $model.senderKey,
                             isSecure: true,
-                            savedIndicator: model.hasStoredKey ? "Key saved" : nil
+                            savedIndicator: model.hasStoredKey ? "Key saved" : nil,
+                            footnote:
+                                "Type the whole header value the routine expects, for example Bearer abc123 — it is sent exactly as typed."
                         )
 
                         CredentialField(
@@ -72,6 +74,23 @@ struct SettingsView: View {
                         }
                         .foregroundStyle(DSPalette.body.foreground(for: colorScheme))
                         .accessibilityLabel("Clear settings")
+
+                        // Same inside-the-label frame and content shape as Clear, for the reason
+                        // the comment above gives. The word changes while the test is in flight:
+                        // a disabled button whose label never moves reads as a dead control.
+                        Button {
+                            Task { await model.testConnection() }
+                        } label: {
+                            Text(model.isTesting ? "Testing…" : "Test connection")
+                                .dsFont(.body)
+                                .frame(maxWidth: .infinity, minHeight: DSMetrics.minTapTarget)
+                                .contentShape(Rectangle())
+                        }
+                        .foregroundStyle(DSPalette.body.foreground(for: colorScheme))
+                        .accessibilityLabel("Test connection")
+                        .disabled(model.isTesting)
+
+                        connectionReportView
                     }
                 }
                 .padding(DSMetrics.screenMargin)
@@ -93,6 +112,43 @@ struct SettingsView: View {
             statusBadge(symbolName: "checkmark.circle.fill", text: "Saved", pair: DSPalette.success)
         case .error(let message):
             statusBadge(symbolName: "exclamationmark.triangle.fill", text: message, pair: DSPalette.failure)
+        }
+    }
+
+    /// REQ-11: what the webhook itself answered, on screen. The headline goes through the same
+    /// symbol + word + colour badge as a save outcome; below it sit the exact status code and
+    /// the exact body. Never an `alert` and never a toast (DESIGN.md), and deliberately no
+    /// `lineLimit` -- at AX5 a 401's body has to wrap, not clip. Renders nothing until a test
+    /// has run. Nothing here reads `model.senderKey` (D-10).
+    @ViewBuilder
+    private var connectionReportView: some View {
+        if let report = model.connectionReport {
+            VStack(alignment: .leading, spacing: DSMetrics.spacingBase) {
+                statusBadge(
+                    symbolName: report.succeeded
+                        ? "checkmark.circle.fill" : "exclamationmark.triangle.fill",
+                    text: report.headline,
+                    pair: report.succeeded ? DSPalette.success : DSPalette.failure)
+
+                VStack(alignment: .leading, spacing: DSMetrics.spacingBase) {
+                    if let code = report.statusCode {
+                        Text("HTTP \(code)")
+                            .dsFont(.secondary)
+                    }
+                    if let body = report.responseBody {
+                        // Verbatim. An empty body is a fact about the response, so it is named
+                        // as a rendering note -- never substituted for a value that didn't come.
+                        Text(body.isEmpty ? "(empty response body)" : body)
+                            .dsFont(.secondary)
+                            .textSelection(.enabled)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .foregroundStyle(DSPalette.secondary.foreground(for: colorScheme))
+                // One announcement for the whole answer: VoiceOver reads the code and the body
+                // together, the way a sighted user reads the two lines.
+                .accessibilityElement(children: .combine)
+            }
         }
     }
 
@@ -126,8 +182,17 @@ private final class PreviewCredentialStore: CredentialStore, @unchecked Sendable
     func clear() throws { stored = nil }
 }
 
+/// A preview-only sender that answers with a fixed attempt and touches no network. It exists
+/// because `connectionReport` is `private(set)`: a `#Preview` cannot assign a report, so it has
+/// to produce one the way the app does -- through `testConnection()`.
+private struct StubPingSending: PingSending {
+    let attempt: PingAttempt
+
+    func send(label: String) async -> PingAttempt { attempt }
+}
+
 @MainActor
-private func previewModel(hasStoredKey: Bool) -> SettingsModel {
+private func previewModel(hasStoredKey: Bool, sender: PingSending? = nil) -> SettingsModel {
     let store = PreviewCredentialStore(
         stored: hasStoredKey
             ? WebhookCredentials(
@@ -136,10 +201,46 @@ private func previewModel(hasStoredKey: Bool) -> SettingsModel {
                 headerName: WebhookCredentials.defaultHeaderName)
             : nil
     )
-    let model = SettingsModel(store: store)
+    let model = SettingsModel(store: store, sender: sender)
     model.load()
     return model
 }
+
+/// Drives one `testConnection()` as the canvas appears so the report is on screen by the time
+/// the preview draws. Preview scaffolding only -- in the app the button is what runs a test.
+private struct PreviewTestedSettings: View {
+    @State private var model: SettingsModel
+
+    @MainActor
+    init(hasStoredKey: Bool, attempt: PingAttempt) {
+        _model = State(
+            initialValue: previewModel(
+                hasStoredKey: hasStoredKey, sender: StubPingSending(attempt: attempt)))
+    }
+
+    var body: some View {
+        SettingsView(model: model)
+            .task { await model.testConnection() }
+    }
+}
+
+/// A wrong sender key as the webhook actually answers it: `PingClassifier`'s own 401 sentence,
+/// the exact code, and a multi-line body -- so the AX5 previews show the body wrapping rather
+/// than a short line that would have fitted anyway.
+private let previewUnauthorizedAttempt = PingAttempt(
+    fix: nil,
+    disposition: .permanentFailure(
+        reason:
+            "Rejected by the webhook (HTTP 401). Check the sender key and header name in Settings."
+    ),
+    statusCode: 401,
+    responseBody: """
+        {
+          "error": "unauthorized",
+          "detail": "the value in the Authorization header did not match the routine's own"
+        }
+        """
+)
 
 #Preview("Light — default") {
     NavigationStack {
@@ -164,6 +265,27 @@ private func previewModel(hasStoredKey: Bool) -> SettingsModel {
 #Preview("Dark — AX5") {
     NavigationStack {
         SettingsView(model: previewModel(hasStoredKey: false))
+    }
+    .preferredColorScheme(.dark)
+    .environment(\.dynamicTypeSize, .accessibility5)
+}
+
+#Preview("Light — test 401") {
+    NavigationStack {
+        PreviewTestedSettings(hasStoredKey: true, attempt: previewUnauthorizedAttempt)
+    }
+}
+
+#Preview("Light — test 401, AX5") {
+    NavigationStack {
+        PreviewTestedSettings(hasStoredKey: true, attempt: previewUnauthorizedAttempt)
+    }
+    .environment(\.dynamicTypeSize, .accessibility5)
+}
+
+#Preview("Dark — test 401, AX5") {
+    NavigationStack {
+        PreviewTestedSettings(hasStoredKey: true, attempt: previewUnauthorizedAttempt)
     }
     .preferredColorScheme(.dark)
     .environment(\.dynamicTypeSize, .accessibility5)

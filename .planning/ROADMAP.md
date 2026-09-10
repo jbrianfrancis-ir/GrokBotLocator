@@ -3,7 +3,7 @@
 | NN | Phase | Goal (one line) | Requirements | Status |
 |----|-------|-----------------|--------------|--------|
 | 01 | Foundation & design system | XcodeGen project, signing config, `DESIGN.md` tokens and components, Keychain-backed settings screen, smoke script | REQ-01, REQ-12, SC-05, SC-06 | verified |
-| 02 | Manual ping | Authorization flow, one-shot fix, payload encoder, POST, history list, test-connection — the "I'm here" button works end to end | REQ-02, REQ-03, REQ-04, REQ-10, REQ-11, SC-01 | pending |
+| 02 | Manual ping | Authorization flow, one-shot fix, payload encoder, POST, history list, test-connection — the "I'm here" button works end to end | REQ-02, REQ-03, REQ-04, REQ-10, REQ-11, SC-01, REQ-12 | planned |
 
 ### Carried into phase 02 from phase 01
 Three phase-01 acceptance checks were deferred, not waived. Phase 02 wires all three into real
