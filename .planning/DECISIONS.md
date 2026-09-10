@@ -38,3 +38,9 @@
 - **note**: the device build was signed by a personal team whose id differs from the one inferred from the local Development certificate's CN; the cert CN suffix is a certificate identifier, not a Team ID. [Team IDs redacted per the 2026-09-09 19:45 entry.]
 - **by**: Brian Francis <127874124+jbrianfrancis-ir@users.noreply.github.com>
 - **at**: 3a4f353 · phase 01
+
+## 2026-09-10 · checkpoint-decision
+- **asked**: Three phase-01 acceptance checks (PingButton press/in-flight, PingOutcomeRow at AX5, DSChrome opaque fallback) cover components phase 01 built but never gave a call site, so they can only be judged in Xcode previews. Force them now, or carry them to phase 02 where real screens adopt them?
+- **answered**: Carry all three forward to phase 02. Recorded in ROADMAP.md under "Carried into phase 02 from phase 01" and marked [→] DEFERRED in phase 01's VERIFICATION. Deferred, NOT waived — phase 02 must close them on-screen. Note DSChrome's production path has never executed (zero call sites), so a preview could not have closed it honestly anyway.
+- **by**: Brian Francis <127874124+jbrianfrancis-ir@users.noreply.github.com>
+- **at**: 3a4f353 · phase 01

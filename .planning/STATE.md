@@ -8,7 +8,7 @@ Next: /flow-verify 1
 
 ## Gate
 type: human-action
-asked: Phase 1 verified, 0 gaps, smoke green. A simulator run cleared the D-10 force-quit/relaunch check and fixed 2 defects. 3 checks remain, all preview/visual: PingButton press+in-flight, DSChrome opaque-fallback previews, PingOutcomeRow at AX5 (no call site yet, so previews only) — plus VoiceOver phrasing and the Accessibility Inspector audit. Device checks are CLOSED. Separately: the device build used a FREE personal team, so its profile expires 2026-09-16 — D-03 shipping question still open (see DECISIONS 2026-09-10). Run them and report pass/fail.
+asked: Phase 1 verified, 0 gaps, smoke green. A simulator run cleared the D-10 force-quit/relaunch check and fixed 2 defects. 2 checks remain, both on the settings screen: VoiceOver phrasing, and the Accessibility Inspector audit (contrast + hit targets). Device checks CLOSED. The 3 preview-only checks (PingButton, PingOutcomeRow, DSChrome) are DEFERRED TO PHASE 02 by human decision — they have no call site until phase 02 wires them in; see ROADMAP. Separately: the device build used a FREE personal team, so its profile expires 2026-09-16 — D-03 shipping question still open (see DECISIONS 2026-09-10). Run them and report pass/fail.
 options:
   1. All 8 pass — /flow-verify 1 records them, phase 1 verifies, roadmap advances to phase 2.
   2. One or more fail — the failures become gaps; /flow-plan 1 --gaps replans them.
