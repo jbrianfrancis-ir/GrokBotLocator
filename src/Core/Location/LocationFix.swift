@@ -43,7 +43,15 @@ struct LocationFix: Sendable, Equatable {
 /// sentence -- what happened and what to do next, on screen, never a bare status name
 /// (DESIGN.md) -- rather than leaving the view to compose one from a raw error.
 enum LocationFixError: Error, Equatable, Sendable {
+    /// The prompt was never answered -- status is still `.notDetermined`. NOT the same as a
+    /// refusal: there is still an in-app way forward.
     case notAuthorized
+    /// This app was refused. No in-app route back; only the per-app Settings path works, which
+    /// is why the text comes from `LocationAuthorizationNotice` rather than being written twice.
+    case deniedForApp
+    /// A device restriction (Screen Time / MDM) is in force. NOT the same as Location Services
+    /// being switched off device-wide.
+    case restricted
     case deniedGlobally
     case unavailable
     case timedOut
@@ -53,6 +61,14 @@ enum LocationFixError: Error, Equatable, Sendable {
         switch self {
         case .notAuthorized:
             return "Location access has not been granted yet. Allow location access to send a manual ping."
+        case .deniedForApp:
+            // Delegated, not duplicated: the notice block and this guidance sentence describe
+            // the same state, and authoring a second sentence is how they came to disagree.
+            return LocationAuthorizationNotice.notice(for: .denied)
+                ?? "Location access is off for GrokBotLocator. Turn it on in Settings ▸ Privacy & Security ▸ Location Services ▸ GrokBotLocator ▸ While Using the App to send a manual ping."
+        case .restricted:
+            return LocationAuthorizationNotice.notice(for: .restricted)
+                ?? "Location is restricted on this device. Manual pings cannot include a position until that restriction is lifted."
         case .deniedGlobally:
             return "Location Services are off for this device. Turn them on in Settings ▸ Privacy & Security ▸ Location Services, then try again."
         case .unavailable:

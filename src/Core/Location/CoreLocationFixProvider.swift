@@ -45,11 +45,16 @@ final class CoreLocationFixProvider: LocationFixProvider {
         case .authorizedWhenInUse, .authorizedAlways:
             break
         case .restricted:
-            throw LocationFixError.deniedGlobally
+            // A restriction is not Location Services being off device-wide, and telling the
+            // user to turn that switch on is an instruction they cannot follow.
+            throw LocationFixError.restricted
         case .denied:
-            throw LocationFixError.notAuthorized
+            // Refused, not "not granted yet": the only route back is the per-app Settings path.
+            throw LocationFixError.deniedForApp
         default:
-            throw LocationFixError.notAuthorized
+            // An unrecognised future status is not a refusal and not "not granted yet" -- say
+            // temporarily unavailable rather than assert something false about the user's choice.
+            throw LocationFixError.unavailable
         }
 
         return try await withThrowingTaskGroup(of: LocationFix.self) { group in
@@ -62,7 +67,8 @@ final class CoreLocationFixProvider: LocationFixProvider {
                         throw LocationFixError.deniedGlobally
                     }
                     if update.authorizationDenied {
-                        throw LocationFixError.notAuthorized
+                        // Same state as the `.denied` status above, reached via the stream.
+                        throw LocationFixError.deniedForApp
                     }
                     if update.locationUnavailable {
                         throw LocationFixError.unavailable

@@ -56,6 +56,8 @@ struct LocationAuthorizationTests {
 
     @Test(arguments: [
         LocationFixError.notAuthorized,
+        .deniedForApp,
+        .restricted,
         .deniedGlobally,
         .unavailable,
         .timedOut,
@@ -66,6 +68,31 @@ struct LocationAuthorizationTests {
         #expect(!reason.isEmpty)
         #expect(reason.hasSuffix("."))
         #expect(reason.rangeOfCharacter(from: .letters) != nil)
+    }
+
+    /// The defect this pins: `.denied` and `.restricted` used to throw `.notAuthorized` and
+    /// `.deniedGlobally`, whose sentences say "has not been granted yet" and "Location Services
+    /// are off for this device" -- neither true of those states, and the second unfollowable.
+    /// Delegating to `LocationAuthorizationNotice` is what stops the guidance sentence and the
+    /// standing notice disagreeing, so assert they are the SAME string, not merely both present.
+    @Test
+    func deniedAndRestrictedBorrowTheNoticeSentenceVerbatim() {
+        #expect(LocationFixError.deniedForApp.reason == LocationAuthorizationNotice.notice(for: .denied))
+        #expect(LocationFixError.restricted.reason == LocationAuthorizationNotice.notice(for: .restricted))
+    }
+
+    /// Each of the three authorization-shaped errors says something different: "not answered
+    /// yet" (the prompt timeout), "this app was refused", and "off for the whole device" are
+    /// three different problems with three different routes out.
+    @Test
+    func theThreeAuthorizationErrorsDoNotShareASentence() {
+        let sentences = Set([
+            LocationFixError.notAuthorized.reason,
+            LocationFixError.deniedForApp.reason,
+            LocationFixError.deniedGlobally.reason,
+            LocationFixError.restricted.reason,
+        ])
+        #expect(sentences.count == 4)
     }
 
     @Test
