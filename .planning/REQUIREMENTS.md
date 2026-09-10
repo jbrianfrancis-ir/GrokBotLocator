@@ -2,7 +2,7 @@
 
 ## Must have (v1)
 - REQ-01: Settings stores webhook URL, sender key, header name in the Keychain — accept: all three survive relaunch; url and header repopulate on screen while the key shows a "key saved" indicator and is never re-rendered (D-10); absent from a `UserDefaults` dump and from `strings` on the binary.
-- REQ-02: "I'm here" button captures one fix and POSTs `{"lat","lng","accuracy_m","label"}` to the configured URL with the configured header — accept: stub server receives that exact JSON, `lat`/`lng` numeric; status shown to user.
+- REQ-02: "I'm here" button captures one fix and POSTs `{"lat","lng","accuracy_m","label","at"}` to the configured URL with the configured header — accept: stub server receives that exact JSON in that key order, `lat`/`lng` numeric, `at` the ISO-8601 time of the FIX not the POST; status shown to user. (`at` added 2026-09-10, D-12 — REQ-05 may deliver a ping a wake later, and the receiver has to be able to tell.)
 - REQ-03: Optional label, remembered between pings, editable before sending — accept: type "Gallipoli", send, relaunch, field still reads "Gallipoli".
 - REQ-04: Ping history list: timestamp, coordinates, label, outcome (sent / queued / failed + reason) — accept: one success and one forced failure give two rows with distinct outcomes.
 - REQ-05: Failed or offline pings queue durably to disk and drain at the next opportunity the OS gives the app — connectivity returning while it is alive, a location-triggered wake, a manual launch, or a `BGAppRefreshTask` — accept: airplane mode → tap → "queued"; with the app open, airplane off → flips to "sent" unattended; force-quit then relaunch → the queued ping is still there and sends.

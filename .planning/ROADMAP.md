@@ -3,7 +3,7 @@
 | NN | Phase | Goal (one line) | Requirements | Status |
 |----|-------|-----------------|--------------|--------|
 | 01 | Foundation & design system | XcodeGen project, signing config, `DESIGN.md` tokens and components, Keychain-backed settings screen, smoke script | REQ-01, REQ-12, SC-05, SC-06 | verified |
-| 02 | Manual ping | Authorization flow, one-shot fix, payload encoder, POST, history list, test-connection — the "I'm here" button works end to end | REQ-02, REQ-03, REQ-04, REQ-10, REQ-11, SC-01, REQ-12 | planned |
+| 02 | Manual ping | Authorization flow, one-shot fix, payload encoder, POST, history list, test-connection — the "I'm here" button works end to end | REQ-02, REQ-03, REQ-04, REQ-10, REQ-11, SC-01, REQ-12 | merged, acceptance open |
 
 ### Carried into phase 02 from phase 01
 Three phase-01 acceptance checks were deferred, not waived. Phase 02 wires all three into real
@@ -16,5 +16,25 @@ state is unreachable.
 - **PingButton** — in flight a spinner sits beside a changed word; VoiceOver reads label + in-flight state. **Only the in-flight half is deferred**: nothing outside the component's own `#Preview` sets `isInFlight`. The pressed state was already reachable at `SettingsView.swift:54` in phase 01. (Phase 02 gives it the "I'm here" button.)
 - **PingOutcomeRow** — at AX5, light and dark, symbol + word + colour all present, reflowing with no clipping. (Phase 02 gives it the history list.)
 - **DSChrome** — with Reduce Transparency on, or contrast increased, it resolves to a fully opaque fill instead of `.thinMaterial`. Phase 01 left `.dsChrome()` with **zero call sites**, so its production path has never run; the first screen to adopt it must re-verify for real, not by preview.
+### Carried out of phase 02 — merged before its acceptance ran
+PR #2 merged 2026-09-10 with **eleven on-screen checks never run**. They are the acceptance
+evidence for REQ-02, REQ-03, REQ-04, REQ-10, REQ-11, SC-01 and REQ-12, listed runnable in
+`phases/02-manual-ping/VERIFICATION.md`. Phase 02 is integrated, NOT verified — close them on a
+device and record the result there, not here.
+- **REQ-02 / REQ-04 / SC-01** — real endpoint: the four-key body in ARCHITECTURE's key order,
+  "Sent" under 10s, then a forced 401 giving two rows with distinct outcomes and a reason.
+- **REQ-03** — type "Gallipoli", send, force-quit, relaunch: the field still reads it.
+- **REQ-10** — at When In Use the button works and the screen names what Always adds; Never gives
+  a guidance sentence and NO history row.
+- **REQ-11** — a wrong key shows a visible `HTTP 401` with its body, no alert, key never redisplayed.
+- **REQ-12** — Accessibility Inspector at AX5, light AND dark, on PingHomeView **and** SettingsView.
+  The AX5 `actionLabel` > `screenTitle` inversion is ACCEPTED (15:30 decision) — never file it.
+- **Phase-01's three deferred components**, still open a second phase later: PingButton in flight,
+  PingOutcomeRow at AX5, `.dsChrome()`'s Reduce-Transparency fallback.
+
+Three backstop truths also remain unverified by design — the non-401/403 4xx retry policy, whether
+the app prepends `Bearer `, and what a negative `horizontalAccuracy` means. Each needs a rule
+stated in REQUIREMENTS.md, then a test.
+
 | 03 | Durable delivery | Offline queue, backoff retry, connectivity observation, failure classification — no ping is lost on Italian roaming | REQ-05, SC-02 | pending |
 | 04 | Automatic triggers | Significant-change, visits, `CLMonitor` geofences, per-trigger toggles, rate limit, reverse-geocoded labels | REQ-06, REQ-07, REQ-08, REQ-09, SC-03, SC-04 | pending |
