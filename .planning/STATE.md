@@ -3,12 +3,12 @@
 
 ## Position
 Phase: 1 of 4 (Foundation & design system) | Plans: 12/12 | Status: verifying
-Last: 2026-09-09 — phase 1 executed, smoke PASS, 0 gaps. Simulator run fixed 2 defects (letterboxing, duplicate title); D-10 relaunch and portrait lock PROVEN on simulator.
+Last: 2026-09-10 — phase 1: smoke PASS, 0 gaps, 2 defects fixed. Portrait lock, D-10 relaunch, AX5 reflow proven on simulator; BOTH device-only checks closed on an iPhone 16 Pro Max (real keychain-access-groups entitlement, clean strings).
 Next: /flow-verify 1
 
 ## Gate
 type: human-action
-asked: Phase 1 verified, 0 gaps, smoke green. A simulator run cleared the D-10 force-quit/relaunch check and fixed 2 defects. 5 checks remain — 3 preview/visual (PingButton press+in-flight, DSChrome opaque-fallback previews, PingOutcomeRow at AX5 — it has no call site yet), VoiceOver phrasing, and the Accessibility Inspector audit; plus 2 device-only (real keychain-access-groups entitlement, `strings` on the device binary). Portrait lock, D-10 relaunch, and AX5 reflow of the settings screen are proven. Run them and report pass/fail.
+asked: Phase 1 verified, 0 gaps, smoke green. A simulator run cleared the D-10 force-quit/relaunch check and fixed 2 defects. 3 checks remain, all preview/visual: PingButton press+in-flight, DSChrome opaque-fallback previews, PingOutcomeRow at AX5 (no call site yet, so previews only) — plus VoiceOver phrasing and the Accessibility Inspector audit. Device checks are CLOSED. Separately: the device build used a FREE personal team, so its profile expires 2026-09-16 — D-03 shipping question still open (see DECISIONS 2026-09-10). Run them and report pass/fail.
 options:
   1. All 8 pass — /flow-verify 1 records them, phase 1 verifies, roadmap advances to phase 2.
   2. One or more fail — the failures become gaps; /flow-plan 1 --gaps replans them.

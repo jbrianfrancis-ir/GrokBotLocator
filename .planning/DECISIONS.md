@@ -31,3 +31,10 @@
 - **blocked-on**: Xcode has no Apple ID signed in ("No Accounts: Add a new account in Accounts settings"), so no profile could be created. Nothing was registered in any developer account; the build failed closed.
 - **by**: owner
 - **at**: 3a4f353 · phase 01
+
+## 2026-09-10 · evidence — the personal-team conflict is now measured, not hypothetical
+- **asked**: N/A — resolves the UNRESOLVED CONFLICT logged 2026-09-09 21:55 (is the personal team free or paid?).
+- **answered**: FREE. The provisioning profile Xcode issued for com.bfrancis.grokbotlocator spans exactly 7 days (created 2026-09-09, expires 2026-09-16). So D-03's "stranded mid-trip" risk is real for any personal-team build: the app stops launching a week after each install. Adequate for the phase-1 device verification it was created for — both device-only checks are now closed — and NOT adequate for carrying the app on a trip. Shipping still needs either the signing team (D-11 as originally decided) or a paid personal membership. Human call, not taken here.
+- **note**: the device build was signed by a personal team whose id differs from the one inferred from the local Development certificate's CN; the cert CN suffix is a certificate identifier, not a Team ID. [Team IDs redacted per the 2026-09-09 19:45 entry.]
+- **by**: owner
+- **at**: 3a4f353 · phase 01
