@@ -83,6 +83,55 @@ if [[ -n "$USERDEFAULTS_HITS" ]]; then
     exit 1
 fi
 
+echo "==> queue-store guard: FileManager/file-writing APIs confined to PingQueueStore.swift, import Network confined to Connectivity.swift"
+QUEUE_STORE="src/Queue/PingQueueStore.swift"
+CONNECTIVITY="src/Queue/Connectivity.swift"
+
+# D-12 sanctioned PingQueueStore.swift as the ONE coordinate store, on exactly four conditions
+# (protected, backup-excluded, deleted on delivery, never copied elsewhere). A second writer
+# using these APIs is a decision, not a detail -- same shape as the UserDefaults guard above,
+# including dropping comment-only lines first (a whole-file presence grep counts doc-comment
+# text, .planning/LEARNINGS.md) rather than a whole-line `grep -v`, which a real call could hide
+# beside on the same line.
+QUEUE_STORE_HITS=$(grep -rnE \
+    'FileManager|\.write\(to:|URLResourceValues|isExcludedFromBackup|completeFileProtectionUnlessOpen' \
+    src --include='*.swift' 2>/dev/null \
+    | grep -v "^${QUEUE_STORE}:" \
+    | grep -vE '^[^:]*:[0-9]+: *(///|//|\*)' || true)
+
+if [[ -n "$QUEUE_STORE_HITS" ]]; then
+    echo "queue-store guard failed -- the queue file is the ONE sanctioned coordinate store (D-12); a second writer is a decision, not a detail:" >&2
+    echo "$QUEUE_STORE_HITS" >&2
+    exit 1
+fi
+
+NETWORK_IMPORT_HITS=$(grep -rnE '^import Network$' src --include='*.swift' 2>/dev/null \
+    | grep -v "^${CONNECTIVITY}:" || true)
+
+if [[ -n "$NETWORK_IMPORT_HITS" ]]; then
+    echo "queue-store guard failed -- import Network must appear only in ${CONNECTIVITY}:" >&2
+    echo "$NETWORK_IMPORT_HITS" >&2
+    exit 1
+fi
+
+echo "==> queue-protection guard: ${QUEUE_STORE} applies both completeFileProtectionUnlessOpen and isExcludedFromBackup on non-comment lines"
+
+# A whole-file presence grep counts comment text (.planning/LEARNINGS.md: a phase-01 guard read
+# 5 where the answer was 1). Strip comment lines from THIS file's own hits before checking
+# either protection is actually applied in code, not just described in the header doc comment.
+QUEUE_STORE_NONCOMMENT_HITS=$(grep -nE 'completeFileProtectionUnlessOpen|isExcludedFromBackup' "$QUEUE_STORE" 2>/dev/null \
+    | grep -vE '^[0-9]+: *(///|//|\*)' || true)
+
+if ! echo "$QUEUE_STORE_NONCOMMENT_HITS" | grep -q 'completeFileProtectionUnlessOpen'; then
+    echo "queue-protection guard failed -- ${QUEUE_STORE} does not apply .completeFileProtectionUnlessOpen on a non-comment line (D-12 sanctioned the file only as protected; losing this voids the exception):" >&2
+    exit 1
+fi
+
+if ! echo "$QUEUE_STORE_NONCOMMENT_HITS" | grep -q 'isExcludedFromBackup'; then
+    echo "queue-protection guard failed -- ${QUEUE_STORE} does not apply isExcludedFromBackup on a non-comment line (D-12 sanctioned the file only as backup-excluded; losing this voids the exception):" >&2
+    exit 1
+fi
+
 echo "==> xcodegen generate"
 xcodegen generate
 
@@ -124,6 +173,37 @@ fi
 if ! grep -qE 'Test run with [1-9][0-9]* test' "$LOG_FILE"; then
     echo "==> no non-zero Swift Testing count (\"Test run with N test(s)\") found in $LOG_FILE; tail:" >&2
     tail -n 40 "$LOG_FILE" >&2
+    exit 1
+fi
+
+echo "==> background-identifier guard: the BUILT Info.plist carries a resolved, non-placeholder BGTaskSchedulerPermittedIdentifiers[0] ending in .queue-drain"
+# Derived from $DERIVED_DATA, never a literal: DERIVED_DATA above is
+# ${SMOKE_DERIVED_DATA:-build/dd-smoke}, and every plan in this phase overrides
+# SMOKE_DERIVED_DATA with its own path, so a hard-coded build/dd-smoke/... would point at a
+# directory this run never created. SceneBuilder has no conditional form, so scene registration
+# for this identifier is unconditional (see QueueDrainTask's doc comment) -- this guard, reading
+# the BUILT product, is what actually keeps an empty identifier out of a shipped build.
+APP_PLIST="$DERIVED_DATA/Build/Products/Debug-iphonesimulator/GrokBotLocator.app/Info.plist"
+
+if [[ ! -f "$APP_PLIST" ]]; then
+    echo "background-identifier guard failed -- could not check: built Info.plist not found at ${APP_PLIST}" >&2
+    exit 1
+fi
+
+BG_IDENTIFIER=$(/usr/libexec/PlistBuddy -c "Print :BGTaskSchedulerPermittedIdentifiers:0" "$APP_PLIST" 2>/dev/null || true)
+
+if [[ -z "$BG_IDENTIFIER" ]]; then
+    echo "background-identifier guard failed -- ${APP_PLIST} has no BGTaskSchedulerPermittedIdentifiers[0] (an empty identifier must never reach a shipped build):" >&2
+    exit 1
+fi
+
+if [[ "$BG_IDENTIFIER" == *'$('* ]]; then
+    echo "background-identifier guard failed -- ${APP_PLIST}'s BGTaskSchedulerPermittedIdentifiers[0] is an unresolved build-setting reference, not a resolved identifier: ${BG_IDENTIFIER}" >&2
+    exit 1
+fi
+
+if [[ "$BG_IDENTIFIER" != *.queue-drain ]]; then
+    echo "background-identifier guard failed -- ${APP_PLIST}'s BGTaskSchedulerPermittedIdentifiers[0] does not end in .queue-drain: ${BG_IDENTIFIER}" >&2
     exit 1
 fi
 
