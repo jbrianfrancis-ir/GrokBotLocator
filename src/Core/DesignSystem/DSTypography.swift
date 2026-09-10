@@ -3,7 +3,7 @@ import SwiftUI
 /// Type tokens from DESIGN.md, reached only through `.dsFont(_:)`.
 ///
 /// A `Font` resolved outside a View's `body` never sees `\.dynamicTypeSize`, so it never
-/// scales — `Font.system(size: 20)` stored as a `static let` reads 1.00x at AX5 no matter
+/// scales — `Font.system(size: 17)` stored as a `static let` reads 1.00x at AX5 no matter
 /// what the environment says. `@ScaledMetric` only resolves correctly as a View property,
 /// which is why the size lives in a `ViewModifier` and not a token table of `Font` values.
 /// No `Font` is ever declared `static` in this file.
@@ -15,10 +15,10 @@ enum DSTextStyle {
 
     var size: CGFloat {
         switch self {
-        case .body: return 20
-        case .secondary: return 17
-        case .actionLabel: return 28
-        case .screenTitle: return 34
+        case .body: return 17
+        case .secondary: return 15
+        case .actionLabel: return 24
+        case .screenTitle: return 30
         }
     }
 
