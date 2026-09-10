@@ -64,7 +64,7 @@ unverified: []
      navigationTitle duplicated SettingsView's on-screen screenTitle heading. smoke.sh
      re-run green after both. Checks below reflect the post-fix build. -->
 - [x] **SIMULATOR-PROVEN 2026-09-09** — launches portrait; rotated the device right (Simulator window went 779x453, i.e. chassis genuinely landscape) and the framebuffer stayed 1206x2622 portrait with the UI upright and unchanged. Rotated back. Portrait lock holds.
-- [→] **DEFERRED TO PHASE 02** (human decision 2026-09-10) — PingButton has no call site in phase 01, so this is preview-only today. Phase 02's "I'm here" button gives it a real one; verify on-screen there. See ROADMAP "Carried into phase 02".
+- [→] **DEFERRED TO PHASE 02** (human decision 2026-09-10) — **rationale corrected 2026-09-10 (pre-PR review)**: the original entry said PingButton "has no call site in phase 01", which is false. `SettingsView.swift:54` is a production call site, on the one screen a human drove at AX5 in both appearances, so the **pressed state was reachable in phase 01**. What genuinely has no call site is the **in-flight state** — nothing outside `PingButton.swift`'s own `#Preview` ever sets `isInFlight`. The deferral stands on those narrower grounds. Phase 02's "I'm here" button exercises the in-flight path for real. See ROADMAP "Carried into phase 02".
 - [x] **PARTLY CLOSED 2026-09-09** — CredentialField at AX5 on the post-fix build: top of screen captured light and dark (labels on one line, 3-line footnote wraps, `Key saved` indicator scales its symbol with the text, nothing clips); bottom third (status badge / Save settings / Clear) confirmed clean at AX5 by the human on-device-simulator. "No control reveals a secure value" also proven — the secure field renders `Key saved`, never the value.
   - **VoiceOver CLOSED 2026-09-10** — human swiped the full settings screen with VoiceOver on.
     All 7 elements announce as specified: title carries the heading trait; "Webhook URL" is spoken
@@ -77,7 +77,24 @@ unverified: []
 - [→] **DEFERRED TO PHASE 02** (human decision 2026-09-10) — `.dsChrome()` has ZERO call sites, so its production path has never executed; a preview cannot close this. The first screen to adopt custom chrome verifies it for real.
 - [x] **DEVICE-PROVEN 2026-09-10** — installed on an iPhone 16 Pro Max. `codesign -d --entitlements` on the signed .app shows `keychain-access-groups = <TEAMID>.com.bfrancis.grokbotlocator`, i.e. the `$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)` substitution resolved to a REAL value — versus the empty entitlement dict the simulator's ad-hoc signature yields. Sliver CLOSED 2026-09-10: human saved credentials on the device, force-quit, relaunched — the key field showed "Key saved", which requires a successful SecItem save AND a successful SecItem read under the real entitlement. SecItem works on device.
 - [x] **SIMULATOR-PROVEN 2026-09-09** — save, `simctl terminate` (SIGKILL, force-quit equivalent), relaunch: url and header repopulated, Sender key rendered `✓ Key saved` with no value and no reveal control (D-10 holds). Screenshot evidence. **Also DEVICE-PROVEN 2026-09-10** — human repeated save / force-quit / relaunch on the iPhone: url and header repopulated, key field showed "Key saved" with no value and no reveal control. D-10 now holds on real hardware, not just simulator. STILL UNTESTED: the `http://`-rejection field error (needs someone typing a bad url into the UI).
-- [x] **DEVICE-PROVEN 2026-09-10** — `strings` on the arm64 Debug-iphoneos binary: 0 hits for the webhook host, 0 `https://` literals of any kind, 0 bearer/api-key patterns. Credentials exist only in the Keychain at runtime; nothing is compiled in.
+- [x] **CORRECTED 2026-09-10 (pre-PR review)** — the original entry read: *"`strings` on the arm64
+  Debug-iphoneos binary: 0 hits for the webhook host, 0 `https://` literals of any kind, 0
+  bearer/api-key patterns."* **That evidence was invalid.** In a Debug build with previews, Xcode
+  leaves `GrokBotLocator` as a launch stub (58 KB) and emits the app's code into the sibling
+  `GrokBotLocator.debug.dylib` (~1 MB). The scan hit the stub, so it would have returned clean
+  regardless of what the source contained — a fail-closed guard reporting success it never
+  established (`conventions.md` → Fail-closed guards).
+  **Corrected scan, all three Mach-O files in the .app** (build/dd-smoke, 2026-09-10):
+  `GrokBotLocator` 0 hits · `__preview.dylib` 0 hits · `GrokBotLocator.debug.dylib` **3 hits**, in
+  full: `https://example.invalid/webhook`, `"Webhook URL must start with https:// and include a
+  host."`, `"Where pings are sent. Must start with https://."`. Bearer/api-key patterns across all
+  three: **0**. The conclusion still holds — no real host and no credential is compiled in — but it
+  now rests on a scan that looked at the binary carrying the code.
+  **Open item**: literal 1 is a `#Preview` fixture that is not `#if DEBUG`-guarded, so preview
+  fixtures ship inside the app binary. Benign today (`.invalid`); the pattern is not.
+  **Device caveat**: no `Debug-iphoneos` artifact survives locally, so the corrected scan was run
+  against the simulator build. The unsoundness is structural and reproduces on all five local
+  builds; the specific device binary could not be re-measured.
 - [x] **PASS 2026-09-10** — Accessibility Inspector audit run against the booted iPhone 17 Pro / iOS 26.5
   at `content_size accessibility-extra-extra-extra-large`, both appearances (orchestrator drove
   `simctl ui … appearance light` then `dark`; human ran the audit and scrolled to bring the
