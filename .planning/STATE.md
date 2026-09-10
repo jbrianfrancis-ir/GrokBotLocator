@@ -1,25 +1,25 @@
 <!-- .planning/STATE.md — cap 1.5KB. Rewrite sections in place; never append. -->
 # State
 ## Position
-Phase: 2 of 4 (Manual ping) | Plans: 13 written, 10 executed | Status: EXECUTING
-Last: 2026-09-10 — 02-10: SettingsModel.testConnection + ConnectionReport (REQ-11); smoke 84 tests/12 suites.
-Next: /flow-execute 2 — resume at plan 02-11
+Phase: 2 of 4 (Manual ping) | Plans: 13/13 | Verify: human_needed, 0 gaps
+Last: 2026-09-10 — 13 waves executed, smoke green (84 tests/12 suites). 0 gaps, 3 backstops unverified, 6 human checks open. Fixed 1 flaky hang, 2 guard holes.
+Next: run 6 human checks in VERIFICATION.md, then /flow-pr
 ## Gate
-none
+type: verification-human-checks
+asked: On-screen acceptance needs a human. 6 checks in VERIFICATION.md: endpoint ping + 401 (REQ-02/04/SC-01), label survives force-quit (REQ-03), When-In-Use/Never (REQ-10), phase-01's 3 deferred components, REQ-12 Inspector both screens, REQ-11 401 on screen.
+options: run them and record pass/fail | carry into /flow-pr | waive (not advised: phase 01 closed REQ-12 that way, then 02-01 voided it)
+default: run them
+note: AX5 actionLabel>screenTitle is ACCEPTED (15:30); never file it.
 ## Run
-Iteration: 2 | Started: 2026-09-10T15:31Z | Repeats: 0
-Signature: rule4:phase02:plans0/13:verifnone
+Iteration: 3 | Started: 2026-09-10T15:31Z | Repeats: 0
+Signature: rule4:phase02:plans13/13:verifhuman_needed
 ## Decisions
-- init: iOS 26.0, native SwiftUI; deploy.tool null — merge is terminal, no UAT/release (D-01/04/07)
-- gate: sender key never re-rendered; "key saved" indicator (D-10)
-- plan: on-disk queue is the durability mechanism, not background URLSession (D-09)
-- 15:30 gate: type curves LEFT ALONE, phase 02 ungated — AX5 actionLabel>screenTitle accepted, pinned by 02-01's tripwire
-- plan 02: wire bytes hand-composed in ARCHITECTURE's key order (JSONEncoder order is non-deterministic, proven on-simulator); retryable failure records .failed, phase 03 swaps the queue in via PendingPingSink
+- init: iOS 26.0; deploy.tool null — merge is terminal (D-01/04/07)
+- 15:30: curves LEFT ALONE, ungated; AX5 inversion accepted, pinned by 02-01
+- plan 02: wire bytes hand-composed (JSONEncoder order non-deterministic); retryable=.failed
 ## Blockers
 - none
 ## Session
-Stopped: 02-10 committed (e56842a, 4e92cd3). Waves serial — smoke.sh shares one xcodeproj and
-  derived-data dir; human checks batch at 02-11/02-13.
-Resume: /flow-execute 2 at 02-11. FLAKY: PingModelTests in-flight case hung 2/5 runs (02-10
-  deferred). ACTION (human, on-device): re-save credentials on the iPhone to migrate Keychain to
-  ThisDeviceOnly. ~15 PR #1 should-fix findings unfixed. D-03 OPEN (expires 2026-09-16).
+Stopped: 13/13 executed on flow/manual-ping, guard fix at HEAD, NOT pushed.
+Resume: human checks, then /flow-pr. 3 backstops need a rule + test. ACTION: re-save
+  credentials on the iPhone (ThisDeviceOnly).

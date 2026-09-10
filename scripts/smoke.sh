@@ -56,7 +56,15 @@ LABEL_STORE="src/Ping/PingLabelStore.swift"
 # exists; before 2026-09-10 it did not, which is why the claim is now enforced rather than
 # asserted. ARCHITECTURE: credentials live only in the Keychain -- a typed label is neither a
 # credential nor a coordinate, so one caller is allowed and a second needs a decision.
-USERDEFAULTS_HITS=$(grep -rn 'UserDefaults' src --include='*.swift' 2>/dev/null     | grep -v "^${LABEL_STORE}:"     | grep -v 'UserDefaultsPingLabelStore'     | grep -vE '^[^:]*:[0-9]+: *(///|//|\*)' || true)
+# Strips the allowed type name from each line BEFORE looking for the API, rather than dropping
+# any line that mentions it: a line-level `grep -v` let a second real caller hide beside the
+# type name (`UserDefaultsPingLabelStore(); UserDefaults.standard.set(...)`), which the
+# phase-02 verifier caught by probing it live.
+USERDEFAULTS_HITS=$(grep -rn 'UserDefaults' src --include='*.swift' 2>/dev/null \
+    | grep -v "^${LABEL_STORE}:" \
+    | grep -vE '^[^:]*:[0-9]+: *(///|//|\*)' \
+    | sed 's/UserDefaultsPingLabelStore//g' \
+    | grep 'UserDefaults' || true)
 
 if [[ -n "$USERDEFAULTS_HITS" ]]; then
     echo "UserDefaults guard failed -- the UserDefaults API must appear only in ${LABEL_STORE} (a second caller is a decision, not a detail):" >&2
