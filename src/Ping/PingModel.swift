@@ -1,6 +1,15 @@
 import Foundation
 import Observation
 
+/// One announcement of a ping outcome: the sentence, plus a sequence number that makes two
+/// identical outcomes distinct values. `PingHomeView` announces on change, so without the
+/// sequence a second "Ping sent." -- the same string -- would not register as a change and
+/// would never be spoken.
+struct PingAnnouncement: Equatable, Sendable {
+    let sequence: Int
+    let text: String
+}
+
 /// The home screen's state machine (02-09-PLAN.md): label, in-flight, history, guidance,
 /// authorization notice. No view, no network, no CoreLocation -- `PingSending`,
 /// `PingLabelStore` and `LocationFixProvider` are all protocols, so every branch here is
@@ -28,7 +37,13 @@ final class PingModel {
     private(set) var log = PingHistoryLog()
     private(set) var guidance: String?
     private(set) var authorizationNotice: String?
-    private(set) var lastAnnouncement: String?
+    /// Identity-bearing, NOT just the text: the view announces on change, and two pings with
+    /// the same outcome produce the same sentence. Keying off the text alone meant the second
+    /// identical outcome was never spoken -- silent VoiceOver on the app's primary action, which
+    /// DESIGN.md ("the ping outcome is announced, not just rendered") forbids. `sequence` makes
+    /// every outcome a distinct value even when the words repeat.
+    private(set) var lastAnnouncement: PingAnnouncement?
+    private var announcementSequence = 0
 
     /// Argument labels and order are pinned -- 02-13's call site writes them verbatim.
     init(sender: PingSending, labelStore: PingLabelStore, fixes: LocationFixProvider) {
@@ -85,8 +100,17 @@ final class PingModel {
             guidance = reason
         }
 
-        lastAnnouncement = announcement
-
         await refreshAuthorizationNotice()
+
+        // One sentence per state. An authorization failure sets `guidance` to the very sentence
+        // the standing notice already shows, and rendering both stacked them -- at AX5 each
+        // block is tall, and before the sentences were unified they actively disagreed about
+        // what happened. The notice is the durable one, so the duplicate guidance goes.
+        if let guidance, guidance == authorizationNotice {
+            self.guidance = nil
+        }
+
+        announcementSequence += 1
+        lastAnnouncement = PingAnnouncement(sequence: announcementSequence, text: announcement)
     }
 }
