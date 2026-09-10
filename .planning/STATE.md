@@ -2,9 +2,9 @@
 # State
 
 ## Position
-Phase: 1 of 4 (Foundation & design system) | Plans: 12/12 | Status: verified
-Last: 2026-09-10 — phase 1 VERIFIED. Smoke PASS, 0 gaps. Last 2 human checks closed: VoiceOver phrasing (no double-speak, key never spoken) and the AX5 Accessibility Inspector audit, light+dark (0 contrast, 0 hit-target) — REQ-12 closed. 3 preview-only checks carried to phase 02.
-Next: /flow-pr
+Phase: 1 of 4 (Foundation & design system) | Plans: 12/12 | Status: verified, PR #1 open
+Last: 2026-09-10 — PR #1 opened. 6-lens review found 2 blocking (1 fixed: Clear button hit region; 1 refuted by human: AX5 hierarchy). Fixed 4: Clear button, Keychain ThisDeviceOnly (+regression test), smoke.sh dead exit-code guard, 2 false records in VERIFICATION. Smoke 22 tests green.
+Next: /flow-ci
 
 ## Gate
 none
@@ -25,8 +25,8 @@ Signature: none
 - none
 
 ## Session
-Stopped: phase 1 verified end to end; ready to integrate via PR (deploy.tool null — no harden/UAT chain).
-Resume: /flow-pr — PR for flow/grok-bot-locator against main. Carry forward: D-03 still OPEN
-  (device build used a FREE personal team; profile expires 2026-09-16 — fine for verification,
-  not for trip use). No .planning/codebase/MAP.md (greenfield, never mapped); /flow-map if needed.
-  Only the iOS 26.5 runtime is installed; XCTest's "Executed N" line is always 0.
+Stopped: PR #1 open — https://github.com/jbrianfrancis-ir/GrokBotLocator/pull/1
+Resume: /flow-ci drives it green; review+merge are human. Carry forward: ACTION — re-save
+  credentials once on the iPhone to migrate existing Keychain items to ThisDeviceOnly.
+  ~15 should-fix findings documented in the PR body, not fixed. D-03 still OPEN (free personal
+  team; profile expires 2026-09-16). No .planning/codebase/MAP.md (greenfield).

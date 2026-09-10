@@ -52,3 +52,16 @@
 - **still open, not part of this gate**: D-03 (free personal team, profile expires 2026-09-16 — verification-adequate, not ship-adequate) and the `http://`-rejection field error, which is trace-verified and unit-tested but has never been typed into the UI by a human.
 - **by**: owner
 - **at**: 8ce2e53 · phase 01
+
+## 2026-09-10 14:26 · review-refute
+- **asked**: The design review lens tagged an AX5 type-hierarchy finding `blocking`, on the stated grounds that DSTypography's four tokens ride four different Dynamic Type curves and the screen title therefore renders SMALLER than body text at AX5 (claimed 53pt vs 62pt), making REQ-12 closed on evidence that cannot see it. Orchestrator measured it with the phase's own ImageRenderer harness: secondary 59, body 67, screenTitle 70, actionLabel 79. The specific claim is false — the title is larger than body — but the title/body gap collapses from 1.71x at default to 1.04x, and actionLabel genuinely overtakes screenTitle, so "Save settings" renders larger than the "Settings" heading. Accept the downgrade from blocking to should-fix?
+- **answered**: DOWNGRADE ACCEPTED. Recorded as a refuted blocking finding in PR #1's body under "Deviations and open items", flagged as needing the reviewer's agreement, with the underlying defect listed under "Thin spots". Not fixed in this PR; belongs to phase 02 with a proper relative-order test.
+- **by**: owner
+- **at**: 25e72f6 · phase 01 · PR #1
+
+## 2026-09-10 14:26 · checkpoint-decision
+- **asked**: (1) The project declares no version field anywhere — no MARKETING_VERSION/CURRENT_PROJECT_VERSION, no manifest, no tags — and the built Info.plist carries neither CFBundleShortVersionString nor CFBundleVersion (verified against the binary, not inferred). App Store Connect and TestFlight reject uploads missing them. Establish a version now or not? (2) How much of the 6-lens review to fix before opening the PR?
+- **answered**: (1) NO VERSION CHANGE. Recorded in the PR body as "version: no scheme declared; no bump applicable", with the missing Info.plist keys carried as an open item for a later phase. (2) FIX THE CONFIRMED FOUR — Clear button hit region (the confirmed blocking finding), Keychain ThisDeviceOnly on both add and update branches, smoke.sh's dead exit-code guard, and the two false records in VERIFICATION.md. Explicitly declined the wider "confirmed four + test hardening" option, so the contrast-accessor fix and the DSTextStyle 17pt floor assertion were carried as documented open items rather than applied.
+- **note**: ~15 should-fix findings across six lenses were carried into the PR body unfixed, each named. The audit-trail gap (36 of 68 commits not machine-auditable) was recorded rather than remedied — the fix would force-push over 67 published commits and invalidate SHAs cited throughout .planning/; both the conventions lens and the orchestrator judged that the worse trade.
+- **by**: owner
+- **at**: 25e72f6 · phase 01 · PR #1
