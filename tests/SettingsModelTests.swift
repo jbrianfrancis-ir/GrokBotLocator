@@ -699,6 +699,7 @@ struct SettingsModelTests {
             // No trigger event is ever delivered in this test, so no fix is ever requested.
             fixes: TriggerCoordinatorTests.FakeFixProvider(result: .failure(KeychainFailure())),
             settingsStore: TriggerCoordinatorTests.FakeSettingsStore(initial: .initial),
+            lastPing: InMemoryLastPingStore(),
             rateLimiter: limiter,
             drain: {})
         await coordinator.start()
