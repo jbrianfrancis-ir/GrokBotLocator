@@ -72,7 +72,14 @@ final class QueueDrainCoordinator {
         guard !hasHydrated else { return }
         hasHydrated = true
 
-        guard let queued = try? await store.load() else { return }
+        guard let queued = try? await store.load() else {
+            // The flag is set BEFORE the await so two concurrent launches cannot both hydrate,
+            // but a failed load must not burn the session's one attempt: a locked-device launch
+            // throws `.unavailable` here, and leaving `hasHydrated` set meant the rows never came
+            // back at all until the app was relaunched. The queue itself is intact either way.
+            hasHydrated = false
+            return
+        }
 
         // `store.load()` returns the queue oldest first, and the queue's own capacity (200)
         // exceeds the history log's (50). Taking the trailing slice keeps the NEWEST entries --
