@@ -171,6 +171,65 @@ plan deliberately wants explicit session control). **Operational consequence for
 Always-authorization session needs to be live while the app is foregrounded at the moment triggers
 are (re-)armed; it cannot be freshly acquired from a background wake.
 
+## Q2 addendum — CLMonitor persistence, measured
+
+**2026-09-11.** A throwaway probe app (XcodeGen 2.46.0, iOS 26 simulator, outside this repo, never
+committed — bundle id `com.throwaway.clmonitorprobe`) replaced the inference above with a
+measurement. The probe's `.task` builds `let m = await CLMonitor("CLMonitorPersistenceProbe")`,
+appends `launch=\(await m.identifiers.count)` to `probe.log`, adds a 150 m circular condition when
+that count is 0 and appends `after-add=\(await m.identifiers.count)`, then consumes `await
+m.events` and appends `event=\(event.state)` per event. Counts and identifiers only — never a
+coordinate — in anything written or printed, matching Task 1's constraint.
+
+Commands run, in order (`UDID` resolved via the throwaway project's own simulator, an iPhone 17
+Pro):
+```
+xcodegen generate
+xcodebuild build -project CLMonitorProbe.xcodeproj -scheme CLMonitorProbe \
+  -destination "id=$UDID" CODE_SIGNING_ALLOWED=NO
+xcrun simctl install "$UDID" <built .app>
+xcrun simctl privacy "$UDID" grant location-always com.throwaway.clmonitorprobe
+xcrun simctl launch "$UDID" com.throwaway.clmonitorprobe          # first launch
+xcrun simctl terminate "$UDID" com.throwaway.clmonitorprobe
+xcrun simctl launch "$UDID" com.throwaway.clmonitorprobe          # cold relaunch under test
+xcrun simctl location "$UDID" set 40.0559000,17.9925000            # settle at the region centre
+xcrun simctl location "$UDID" start --speed=20 --distance=50 \
+  40.0559000,17.9925000 40.0577012,17.9925000                     # req06-start.gpx -> req08-hop1.gpx waypoints
+```
+**Deviation from the plan's literal command:** `xcrun simctl location start` on this Xcode/simctl
+build takes `lat,lon` pairs as positional arguments, not `.gpx` file paths (`--help` confirms only
+`set <lat,lon>` / `start <lat1,lon1> <latN,lonN>...`; passing a `.gpx` path fails with `Invalid
+latitude,longitude pair`). The two waypoints above are the exact coordinates
+`scripts/gpx/req06-start.gpx` and `scripts/gpx/req08-hop1.gpx` carry, extracted and passed as
+pairs so the movement is still the real interpolated kind (`--speed=20 --distance=50`), never a
+teleport — the same substance VERIFICATION.md's REQ-06 evidence used. This is a CLI-syntax
+correction, not a change to what was measured.
+
+Verbatim `probe.log` lines, in order:
+```
+launch=0
+after-add=1
+launch=1
+event=CLMonitoringState(rawValue: 1)
+```
+
+**Verdict:** `launch=0` / `after-add=1` on the first install confirms the condition was added.
+`launch=1` on the SECOND launch — after `simctl terminate` genuinely killed the process — confirms
+the condition **survived the process death and was recovered by a freshly-constructed
+`CLMonitor(name:)` in the new process**, with no `add` call in that run. That settles cause (b)
+from VERIFICATION.md's REQ-08 entry: on the simulator, `CLMonitor(name:)` DOES persist its
+condition set across a cold relaunch. The `event=` line, produced only after driving real
+interpolated movement out of the 150 m radius, settles cause (a) the same direction: `CLMonitor`
+events ARE delivered to a running simulator process — the earlier REQ-08 non-reproduction was not
+"the simulator never delivers these events at all."
+
+This does not, by itself, explain VERIFICATION's original NOT-REPRODUCED result — that run's app
+was not observing `CLMonitor.events` at all in a geofence-only cold-relaunch configuration, which
+is exactly the gap D-16 and this plan's Tasks 2-3 close. D-16 authorizes the durable last-ping
+file regardless of this verdict: belt-and-braces here (the region persisted on its own in this
+measurement), load-bearing wherever it does not (a real device, a different iOS build, or a
+simulator reset that clears CLMonitor's own state).
+
 ---
 
 ## Q3 — Significant-change (REQ-06) and visits (REQ-07) monitoring on iOS 26
@@ -345,8 +404,11 @@ SC-03's eventual measurement, even though REQ-06 is a Must-have and not optional
 - **`MKReverseGeocodingRequest`'s rate-limit and offline error semantics** — no numeric limit or
   offline-specific documentation found; do not assume it is more forgiving than `CLGeocoder` just
   because it is newer (Q1).
-- **`CLMonitor(name:)`'s disk-persistence behavior** — inferred from the `async` init signature and
-  community sources, not from Apple's own (currently empty) DocC prose for that initializer (Q2).
+- **`CLMonitor(name:)`'s disk-persistence behavior** — settled by measurement — see Q2 addendum:
+  on the iOS 26 simulator, a condition added in one process was recovered (`launch=1`, no re-add)
+  by a fresh `CLMonitor(name:)` after `simctl terminate` killed the process, and a real
+  interpolated move out of the region produced a delivered `event=` line in that same fresh
+  process. Not yet checked on a real device or across a simulator/OS reset.
 - **CLMonitor's 20-region limit as a specific number** — corroborated by two forum threads, not
   found stated as a number in Apple's own current CLMonitor DocC prose; Apple's DocC does confirm
   the *concept* via the `conditionLimitExceeded` event flag (Q2).
