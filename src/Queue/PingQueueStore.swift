@@ -96,20 +96,18 @@ protocol PingQueueStoring: Sendable {
     /// Adds one pending ping to the queue, refusing rather than evicting if the queue is full.
     func append(_ ping: QueuedPing) async throws
 
-    /// Replaces the entire on-disk queue with `pings`. Wholesale, and therefore only safe when
-    /// the caller has not awaited anything since it loaded -- see `apply(removing:updating:)`.
-    func replace(with pings: [QueuedPing]) async throws
-
     /// Applies a targeted change in ONE store turn: drops every entry whose id is in `removing`,
     /// and replaces in place every entry whose id matches one in `updating`. Anything the caller
     /// never saw is left exactly as it is.
     ///
-    /// This exists because `replace(with:)` cannot be used safely by the drain. The drain loads a
-    /// snapshot, then awaits the network for up to 30s per entry, then writes back a value derived
+    /// The queue deliberately has NO wholesale "replace everything" operation. There used to be
+    /// one, and the drain used it: it loaded a
+    /// snapshot, awaited the network for up to 30s per entry, then wrote back a value derived
     /// entirely from that stale snapshot -- so a ping the user queued DURING the drain was
     /// overwritten and silently lost, while its row still read Queued. That is SC-02's one
     /// forbidden outcome, a silent drop wearing a success label. Merging against what is actually
-    /// on disk, inside the store's own turn, is what makes the drain's write safe.
+    /// on disk, inside the store's own turn, is what makes the drain's write safe, and removing
+    /// the wholesale operation is what stops the next caller reopening the hole.
     func apply(removing: Set<UUID>, updating: [QueuedPing]) async throws
 }
 
@@ -202,10 +200,6 @@ actor FilePingQueueStore: PingQueueStoring {
             throw PingQueueError.full
         }
         pings.append(ping)
-        try write(pings)
-    }
-
-    func replace(with pings: [QueuedPing]) async throws {
         try write(pings)
     }
 

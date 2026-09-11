@@ -40,9 +40,6 @@ struct QueueDrainCoordinatorTests {
             lock.withLock { entries.append(ping) }
         }
 
-        func replace(with pings: [QueuedPing]) async throws {
-            lock.withLock { entries = pings }
-        }
 
         func apply(removing: Set<UUID>, updating: [QueuedPing]) async throws {
             lock.withLock {

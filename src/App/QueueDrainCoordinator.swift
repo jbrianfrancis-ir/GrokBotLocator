@@ -131,7 +131,11 @@ final class QueueDrainCoordinator {
     func drainBackground() async {
         let report = await drain.drain(
             before: now().addingTimeInterval(20), surfacingFailures: false)
-        model.apply(report.updates, announcing: true)
+        // `announcing: false`, matching this method's own name and doc. It passed `true`, so a
+        // background wake spoke an outcome for a tap nobody made -- and a retained permanent
+        // failure re-announced on EVERY background drain until something surfaced it. The rows
+        // still update; only the speaking is withheld until someone is actually looking.
+        model.apply(report.updates, announcing: false)
         if let notice = report.notice {
             model.show(notice: notice)
         }

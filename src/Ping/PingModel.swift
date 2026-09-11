@@ -170,10 +170,27 @@ final class PingModel {
         for update in updates {
             log.apply(update)
         }
-        guard announcing, let last = updates.last else { return }
+        // The WORST outcome in the batch, not the last one. A drain reports several pings at
+        // once, and `updates.last` announced whichever happened to finish last: a queue of
+        // [A rejected 401, B sent] said "Ping sent." and A's permanent rejection was never spoken
+        // at all -- `showsLastAttemptBadge` then suppressed the badge too, because B's row is the
+        // newest. A failure the user is never told about is the silent drop in another costume.
+        guard announcing,
+              let worst = updates.max(by: { Self.announcementRank($0.outcome) < Self.announcementRank($1.outcome) })
+        else { return }
         attemptSequence += 1
         lastAttempt = PingAttemptFeedback(
-            sequence: attemptSequence, outcome: last.outcome, reason: last.reason)
+            sequence: attemptSequence, outcome: worst.outcome, reason: worst.reason)
+    }
+
+    /// How loud an outcome is. `.failed` outranks `.queued` outranks `.sent`, so a batch
+    /// announces the one the user most needs to hear.
+    private static func announcementRank(_ outcome: PingOutcome) -> Int {
+        switch outcome {
+        case .sent: return 0
+        case .queued: return 1
+        case .failed: return 2
+        }
     }
 
     /// The only way anything outside this file can put a drain sentence on screen -- `guidance`

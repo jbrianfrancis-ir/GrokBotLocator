@@ -121,6 +121,13 @@ actor PingQueueDrain {
         var index = queue.startIndex
 
         while index < queue.endIndex {
+            // An expired `BGAppRefreshTask` cancels the task, `URLSession.bytes` throws, and
+            // `PingClassifier` maps every thrown error to `.retryable` -- so without this check the
+            // loop walked the REST of the queue bumping `attemptsMade` and pushing `nextAttemptAt`
+            // a rung further out, for entries it never actually attempted, while the 7-day give-up
+            // clock kept running. Stopping leaves every remaining entry exactly as it was.
+            if Task.isCancelled { break }
+
             if now() >= deadline {
                 // The drain stops at its deadline with every remaining entry, including this one,
                 // still queued exactly as it is. They are simply absent from the delta, so nothing
