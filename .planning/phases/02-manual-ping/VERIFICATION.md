@@ -37,6 +37,27 @@ unverified:
 - [ ] **REQ-11 on screen** (02-11): wrong key vs an endpoint that 401s → "Testing…", disabled; red triangle + sentence, `HTTP 401` line, body below; no alert/toast; stored key nowhere. Repeat at AX5 light and dark: both wrap, nothing clips.
 - [ ] **Backstops** — decide each rule, then write a test that fixes it (or state it in REQUIREMENTS): non-401/403 4xx retry policy; whether the app prepends `Bearer `; negative `horizontalAccuracy`.
 
+### Found by eye during phase 03 acceptance (2026-09-10) — two defects, both fixed
+Neither was caught by a test, because both are layout properties no test asserts. Both were
+found by looking at the running app while setting up phase 03's checks, which is the argument
+for running the on-screen checks above rather than carrying them another phase.
+- **SettingsView: the feedback displaced the action.** `statusView` sat in the same scrolling
+  stack as "Save settings", positioned by `Spacer` + `minHeight`. Saving INSERTED the "Saved"
+  badge into the flow, grew content past the screen, and pushed the button below the fold at
+  the one moment the user was looking for it. Fixed by pinning the save group in a
+  `safeAreaInset(edge: .bottom)` — the shape `PingHomeView` already used. `connectionReportView`
+  stays in the scroll deliberately: it renders a whole 401 body, and a wrapped sentence in the
+  bar eats the budget the 88pt action floor needs at AX5.
+- **PingHomeView: the outcome rendered twice.** With one history row, the row and the pinned
+  `lastAttemptBadge` showed the same symbol + word a few hundred points apart. Now gated on
+  `PingModel.showsLastAttemptBadge`, which hides the badge only when the newest row already
+  carries that outcome and reason. It still shows when the tap recorded NO row (refused fix,
+  denied authorization — 02-12's original reason for it), and when a silent drain has moved the
+  row past the standing feedback. Three tests, falsified by forcing the badge always-on.
+
+**Neither fix has been seen at AX5**, and the pinned bar is precisely where large type bites.
+The REQ-12 audit above is still open and now has to cover both screens' new bottom-bar shape.
+
 ## Learnings
 - A guard that filters whole lines is escapable on that line: smoke.sh dropped any line naming `UserDefaultsPingLabelStore`, so a real `UserDefaults` call beside it passed clean. Strip the allowed token, then match — fixed in the working tree, not yet committed.
 - Retryable sends are `.failed` with a reason, never `.queued`: `PendingPingSink` is a wired, tested no-op. Phase 03 swaps the sink AND flips that arm in `PingModel.ping()`.

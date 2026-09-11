@@ -191,8 +191,10 @@ struct PingModelTests {
     }
 
     @Test
-    func aRetryableFailureWithAFixAlsoRecordsOneFailedEntry() async {
-        // Documented phase-02 mapping: phase 03 (REQ-05) turns this into `.queued`.
+    func aRetryableFailureWithAFixRecordsOneQueuedEntry() async {
+        // The phase-02 mapping (retryable -> .failed) is now live as phase 03 (REQ-05) intended:
+        // the sink has already accepted the payload by the time this arm is reached, so it reads
+        // Queued, not Failed.
         let fakes = Fakes()
         let model = fakes.makeModel()
         fakes.sender.attemptToReturn = PingAttempt(
@@ -203,8 +205,226 @@ struct PingModelTests {
         await model.ping()
 
         #expect(model.log.entries.count == 1)
-        #expect(model.log.entries[0].outcome == .failed)
+        #expect(model.log.entries[0].outcome == .queued)
         #expect(model.log.entries[0].reason == "The webhook is unavailable (HTTP 503).")
+    }
+
+    /// A drain reports a BATCH. Announcing `updates.last` meant a queue of [A rejected, B sent]
+    /// said "Ping sent." and A's permanent rejection was never spoken -- and the badge was
+    /// suppressed too, because B's row is the newest. The worst outcome is the one to announce.
+    @Test
+    func aBatchAnnouncesItsWorstOutcomeNotItsLast() async {
+        let fakes = Fakes()
+        let model = fakes.makeModel()
+        let rejected = PingDeliveryUpdate(
+            id: UUID(), timestamp: Self.fixtureFix.timestamp, latitude: 1, longitude: 2,
+            label: "A", outcome: .failed, reason: "Rejected by the webhook (HTTP 401).")
+        let delivered = PingDeliveryUpdate(
+            id: UUID(), timestamp: Self.fixtureFix.timestamp, latitude: 3, longitude: 4,
+            label: "B", outcome: .sent, reason: nil)
+
+        model.apply([rejected, delivered], announcing: true)
+
+        #expect(model.lastAttempt?.outcome == .failed)
+        #expect(model.lastAttempt?.reason == "Rejected by the webhook (HTTP 401).")
+        #expect(model.lastAttempt?.spoken.hasPrefix("Ping failed.") == true)
+    }
+
+    @Test
+    func theBadgeIsSuppressedWhenTheNewestRowAlreadySaysIt() async {
+        // The screen that prompted this: one send, one row reading "Sent", and the badge beside
+        // the button reading "Sent" again a few hundred points below it.
+        let fakes = Fakes()
+        let model = fakes.makeModel()
+        fakes.sender.attemptToReturn = PingAttempt(
+            fix: Self.fixtureFix, disposition: .sent, statusCode: 200, responseBody: nil)
+
+        await model.ping()
+
+        #expect(model.lastAttempt != nil)
+        #expect(model.log.entries.count == 1)
+        #expect(model.log.entries[0].outcome == .sent)
+        #expect(model.showsLastAttemptBadge == false)
+    }
+
+    @Test
+    func theBadgeStillShowsWhenTheTapRecordedNoRow() async {
+        // The no-fix path reports through the badge alone -- `ping()` records a row only when
+        // `attempt.fix` is non-nil, so a refused fix leaves the history empty and the badge is
+        // the ONLY report of what the tap did. This is the case 02-12 added the badge for, and
+        // the regression the suppression could have introduced.
+        let fakes = Fakes()
+        let model = fakes.makeModel()
+        fakes.sender.attemptToReturn = PingAttempt(
+            fix: nil,
+            disposition: .permanentFailure(reason: "Location access is off for this app."),
+            statusCode: nil, responseBody: nil)
+
+        await model.ping()
+
+        #expect(model.log.entries.isEmpty)
+        #expect(model.lastAttempt != nil)
+        #expect(model.showsLastAttemptBadge)
+    }
+
+    @Test
+    func theBadgeShowsAgainOnceASilentDrainMovesTheRowPastTheStandingFeedback() async {
+        // The real way row and feedback diverge: a background drain applies `announcing: false`,
+        // so the row flips Queued -> Sent while `lastAttempt` still holds the Queued it was given
+        // at tap time. The row and the badge now say different things, and the badge is no longer
+        // a repeat of the row, so it must render. This is the case a naive "a row exists, hide
+        // the badge" rule would have got wrong.
+        let fakes = Fakes()
+        let model = fakes.makeModel()
+        let queuedID = UUID()
+        fakes.sender.attemptToReturn = PingAttempt(
+            fix: Self.fixtureFix,
+            disposition: .retryable(reason: "Waiting to send."),
+            statusCode: nil, responseBody: nil, queuedID: queuedID)
+
+        await model.ping()
+
+        #expect(model.log.entries[0].outcome == .queued)
+        #expect(model.showsLastAttemptBadge == false)  // row says Queued, so does the feedback
+
+        let row = model.log.entries[0]
+        model.apply(
+            [PingDeliveryUpdate(
+                id: queuedID, timestamp: row.timestamp, latitude: row.latitude,
+                longitude: row.longitude, label: row.label, outcome: .sent, reason: nil)],
+            announcing: false)
+
+        #expect(model.log.entries[0].outcome == .sent)
+        #expect(model.lastAttempt?.outcome == .queued)
+        #expect(model.showsLastAttemptBadge)
+    }
+
+    @Test
+    func aRetryableAttemptRecordsAQueuedRowCarryingItsReason() async {
+        let fakes = Fakes()
+        let model = fakes.makeModel()
+        let queuedID = UUID()
+        fakes.sender.attemptToReturn = PingAttempt(
+            fix: Self.fixtureFix,
+            disposition: .retryable(
+                reason: "The webhook is unavailable (HTTP 503). Try again in a moment."),
+            statusCode: 503, responseBody: nil, queuedID: queuedID)
+
+        await model.ping()
+
+        #expect(model.log.entries.count == 1)
+        let entry = model.log.entries[0]
+        #expect(entry.outcome == .queued)
+        #expect(entry.reason == "The webhook is unavailable (HTTP 503). Try again in a moment.")
+        #expect(entry.id == queuedID)
+    }
+
+    @Test
+    func aQueuedRowFlipsToSentWhenTheDrainReportsIt() async {
+        let fakes = Fakes()
+        let model = fakes.makeModel()
+        let queuedID = UUID()
+        fakes.sender.attemptToReturn = PingAttempt(
+            fix: Self.fixtureFix,
+            disposition: .retryable(reason: "The webhook is unavailable (HTTP 503)."),
+            statusCode: 503, responseBody: nil, queuedID: queuedID)
+        await model.ping()
+
+        model.apply(
+            [
+                PingDeliveryUpdate(
+                    id: queuedID, timestamp: Self.fixtureFix.timestamp,
+                    latitude: Self.fixtureFix.latitude, longitude: Self.fixtureFix.longitude,
+                    label: "Home", outcome: .sent, reason: nil)
+            ], announcing: true)
+
+        #expect(model.log.entries.count == 1)
+        #expect(model.log.entries[0].outcome == .sent)
+        #expect(model.log.entries[0].reason == nil)
+        #expect(model.lastAttempt?.outcome == .sent)
+    }
+
+    @Test
+    func aDeliveredAttemptStillHasNoQueuedIdentity() async {
+        let fakes = Fakes()
+        let model = fakes.makeModel()
+        let queuedID = UUID()
+        fakes.sender.attemptToReturn = PingAttempt(
+            fix: Self.fixtureFix, disposition: .sent, statusCode: 200, responseBody: nil)
+
+        await model.ping()
+
+        #expect(model.log.entries.count == 1)
+        #expect(model.log.entries[0].id != queuedID)
+        #expect(model.log.entries[0].outcome == .sent)
+    }
+
+    @Test
+    func applyingSilentlyLeavesLastAttemptUntouched() async {
+        let fakes = Fakes()
+        let model = fakes.makeModel()
+        #expect(model.lastAttempt == nil)
+
+        model.apply(
+            [
+                PingDeliveryUpdate(
+                    id: UUID(), timestamp: Self.fixtureFix.timestamp,
+                    latitude: Self.fixtureFix.latitude, longitude: Self.fixtureFix.longitude,
+                    label: "Home", outcome: .queued, reason: "Waiting to send."),
+                PingDeliveryUpdate(
+                    id: UUID(), timestamp: Self.fixtureFix.timestamp,
+                    latitude: Self.fixtureFix.latitude, longitude: Self.fixtureFix.longitude,
+                    label: "Home", outcome: .failed, reason: "Gave up after 5 attempts."),
+            ], announcing: false)
+
+        #expect(model.log.entries.count == 2)
+        #expect(model.lastAttempt == nil)
+
+        fakes.sender.attemptToReturn = PingAttempt(
+            fix: Self.fixtureFix, disposition: .sent, statusCode: 200, responseBody: nil)
+        await model.ping()
+        let afterPing = model.lastAttempt
+        #expect(afterPing != nil)
+
+        model.apply(
+            [
+                PingDeliveryUpdate(
+                    id: UUID(), timestamp: Self.fixtureFix.timestamp,
+                    latitude: Self.fixtureFix.latitude, longitude: Self.fixtureFix.longitude,
+                    label: "Home", outcome: .failed, reason: "Gave up after 5 attempts.")
+            ], announcing: false)
+
+        #expect(model.lastAttempt == afterPing)
+        #expect(model.lastAttempt?.sequence == afterPing?.sequence)
+    }
+
+    @Test
+    func anEmptyUpdateListAnnouncesNothing() async {
+        let fakes = Fakes()
+        let model = fakes.makeModel()
+
+        model.apply([], announcing: true)
+
+        #expect(model.lastAttempt == nil)
+        #expect(model.log.entries.isEmpty)
+    }
+
+    @Test
+    func showNoticePutsASentenceOnScreenWithoutTouchingTheAuthorizationNotice() async {
+        let fakes = Fakes()
+        let model = fakes.makeModel()
+        fakes.fixes.notice = "Manual pings work now."
+        await model.refreshAuthorizationNotice()
+        #expect(model.authorizationNotice == "Manual pings work now.")
+
+        model.show(notice: "Add your webhook URL and sender key in Settings — 2 ping(s) are waiting to be sent.")
+
+        #expect(
+            model.guidance
+                == "Add your webhook URL and sender key in Settings — 2 ping(s) are waiting to be sent."
+        )
+        #expect(model.authorizationNotice == "Manual pings work now.")
+        #expect(model.log.entries.isEmpty)
     }
 
     @Test

@@ -1,24 +1,24 @@
 <!-- .planning/STATE.md — cap 1.5KB. Rewrite sections in place; never append. -->
 # State
 ## Position
-Phase: 2 of 4 MERGED (PR #2, 76fd308) — integrated, NOT verified | main green 107/12
-Last: 2026-09-10 — PR #2 merged 19:04Z, 11 checks unrun. Review fixed 9 defects, incl. a redirect leaking key+coords while showing "Sent".
-Next: merge PR #3 (D-12 amendment), then /flow-plan 3 — task 1 is the 5th payload key
+Phase: 3 of 4 PR #4 OPEN — 12/12 plans, smoke 177/19, 8/8 checks closed, 0 gaps
+Last: 2026-09-11 — acceptance found a DOUBLE-DELIVERY bug no test caught (actor reentrancy, 64f7b7d). D-13 shrank the type scale; D-14 settled all 3 backstops.
+Next: review + merge PR #4 (human); then /flow-next. Phase 02's 11 checks still open
 ## Gate
-none — D-12 (19:10) answered both: queue file sanctioned for coordinates (protected, backup-excluded,
-deleted on delivery); wire format gains `at` (ISO-8601 time of the FIX) as a 5th pinned key.
-Still open but NOT blocking: 11 on-screen checks from phase 02 (ROADMAP "Carried out of phase 02").
+none — D-13 (type scale; amends DESIGN.md + REQ-12) and D-14 (4xx policy, give-up horizon,
+retention, bundle-id scope) answered 2026-09-11. All 3 backstops now stated in REQUIREMENTS.md.
 ## Run
-Iteration: 1 | Started: 2026-09-10T19:10Z | Repeats: 0
-Signature: rule6:phase03:plans0/0:verifnone
+Iteration: 3 | Started: 2026-09-10T19:10Z | Repeats: 0
+Signature: rule8:phase03:plans12/12:verifpass
 ## Decisions
-- init: iOS 26.0; deploy.tool null — merge is terminal (D-01/04/07)
-- 15:30: type curves LEFT ALONE; AX5 inversion accepted, pinned by 02-01
+- init: iOS 26.0; deploy.tool null — merge terminal (D-01/04/07)
+- 15:30: type curves LEFT ALONE; AX5 inversion accepted (02-01)
 - D-12: queue is the one sanctioned coordinate store; payload gains `at`
 ## Blockers
 - none
 ## Session
-Stopped: PR #3 open — https://github.com/jbrianfrancis-ir/GrokBotLocator/pull/3 (D-12
-  amendment + phase 02's post-merge record). Docs only, no CI on this repo.
-Resume: /flow-plan 3. The 5-key wire change is phase 03 task 1 — the app still sends 4 keys, so
-  run REQ-02's acceptance check after it lands. LEARNINGS.md has the timeout/body remediation.
+Stopped: PR #4 open — https://github.com/jbrianfrancis-ir/GrokBotLocator/pull/4. Review found 6
+  blocking defects AFTER verification said pass; 3 were actor reentrancy, 1 was a locked device
+  destroying the queue. All fixed, 3 rounds, final round clean. Docs only, no CI on this repo.
+Resume: merge is human. 2 open decisions in the PR body: hydrate() vs ARCHITECTURE:72's "never
+  copied", and UnqueuedPingSink relabelling a 429 as permanent ("Failed: it is waiting").

@@ -12,7 +12,7 @@
 - REQ-09: Per-trigger on/off switches plus a minimum-interval rate limit with a hard 15 s floor enforcing SC-04 — accept: at the 60 s default, two trigger events 20 s apart produce one ping; the interval cannot be set below 15 s.
 - REQ-10: Authorization requested at point of use with a purpose string; manual pings work at "When In Use", "Always" requested only when a trigger is enabled — accept: denying "Always" leaves the button working and explains what is unavailable.
 - REQ-11: "Test connection" in settings sends a ping and surfaces the exact HTTP status and body — accept: a wrong key shows a visible 401/403, never a silent failure.
-- REQ-12: Every screen meets `DESIGN.md` — Dynamic Type to AX5 without truncation, body text ≥ 20pt, tap targets ≥ 60pt, outcome shown as symbol + word + colour, light and dark both contrast-verified — accept: at AX5 in both appearances no text clips or overlaps, and the Accessibility Inspector audit reports no contrast or hit-target failures.
+- REQ-12: Every screen meets `DESIGN.md` — Dynamic Type to AX5 without truncation, body text ≥ 17pt (was ≥ 20pt until D-13), tap targets ≥ 60pt, outcome shown as symbol + word + colour, light and dark both contrast-verified — accept: at AX5 in both appearances no text clips or overlaps, and the Accessibility Inspector audit reports no contrast or hit-target failures.
 
 ## Success criteria
 - SC-01: A manual ping goes tap → confirmed delivery in under 10 s on a normal mobile connection.
@@ -28,6 +28,9 @@
 - Plain HTTPS POST, JSON body, one auth header — no request signing, no OAuth, no `Retry-After` handling.
 - The sender key is long-lived and entered once; rotation means re-entering it.
 - Any 2xx is accepted; 5xx and network errors retry with backoff; 401/403 surface immediately and never retry.
+- **HTTP 408 and 429 retry** (D-14): they mean "not now", not "not ever", and succeed on a later attempt. Every other 4xx (400, 404, 409, 410, 422, 499 …) is permanent — a wrong URL or a malformed body is not fixed by retrying. No `Retry-After` handling: 408/429 ride the app's own backoff.
+- **A queued ping gives up 7 days after its FIRST attempt** (D-14), measured in elapsed time, not attempt count. This covers SC-02's 7-day trip with slack.
+- **A ping that fails permanently while the app is not running is kept on disk with its reason until it has been shown, then deleted** (D-14). A background drain marks it; the next foreground drain reports and removes it. This is what makes SC-02's "shown permanently failed with a reason" true for a failure discovered while nobody was looking.
 - Manual pings use the typed label; automatic pings reverse-geocode the locality, falling back to an empty label. Geocoder API is [NEEDS CLARIFICATION: `CLGeocoder` may be superseded by `MKGeocodingRequest` on iOS 26 — unverified in the research pass; confirm before phase 4 plans].
 - iOS gives no "wake when connectivity returns" primitive. A terminated app's queue drains on the next wake, not the instant signal comes back — this is an OS limit, not a design choice.
 - The durability mechanism is the on-disk queue file, NOT a background `URLSession`: user force-quit cancels background transfers and the system will not relaunch a force-quit app.

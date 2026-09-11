@@ -65,8 +65,12 @@ struct DynamicTypeScalingTests {
         #expect(actionLabel < screenTitle, "actionLabel (\(actionLabel)) should render smaller than screenTitle (\(screenTitle)) at .large")
     }
 
-    /// Measured 2026-09-10 at .accessibility5 via this suite's `height(of:at:)` harness:
-    /// secondary 59.0, body 67.0, screenTitle 70.0, actionLabel 79.0 (points). These
+    /// Measured at .accessibility5 via this suite's `height(of:at:)` harness. After D-13
+    /// shrank the scale one step: secondary 52.0, body 58.0, screenTitle 61.0, actionLabel
+    /// 69.0 (points). Before D-13 they were 59.0 / 67.0 / 70.0 / 79.0 at the same sizes.
+    /// The assertions are deliberately about ORDER, not those absolute values, which is why
+    /// a uniform shrink left them green -- `tokenHeightsAtBothSizes` prints the live numbers
+    /// into the smoke log so a drift shows up there. These
     /// expectations describe that status quo deliberately -- this is a tripwire, so a later
     /// curve or size change fails here rather than drifting unnoticed -- and the
     /// `actionLabel` > `screenTitle` inversion they encode is accepted shipped behavior per

@@ -1,0 +1,569 @@
+import Foundation
+import Synchronization
+import Testing
+@testable import GrokBotLocator
+
+/// Pins every disposition `PingQueueDrain.drain(before:surfacingFailures:)` can produce, against
+/// fakes only -- no network, no disk, no real clock. This is SC-02's load-bearing suite: a
+/// delivered entry is deleted the instant it is reported (D-12), a permanent failure survives on
+/// disk until it is actually surfaced, a retryable failure changes the file but never the report,
+/// and neither an unreadable queue nor unreadable credentials ever empties the queue. Synthetic
+/// coordinates only.
+@Suite
+struct PingQueueDrainTests {
+
+    // MARK: Fakes
+
+    /// `PingQueueStoring`'s three methods are nonisolated `async` requirements, so this fake runs
+    /// off whatever isolation domain calls it -- lock-guarded per `.planning/LEARNINGS.md`'s note
+    /// on the phase-02 fake that hung the suite when it wasn't. Records every `replace(with:)`
+    /// call, in order, so `theFileIsRewrittenAfterEachEntryNotOnlyAtTheEnd` can see the file
+    /// shrink one entry at a time rather than only its final state.
+    private final class FakeQueueStore: PingQueueStoring, @unchecked Sendable {
+        private let lock = NSLock()
+        private var entries: [QueuedPing]
+        private var replaceCallsStorage: [[QueuedPing]] = []
+        var loadErrorToThrow: Error?
+        var applyErrorToThrow: Error?
+
+        init(entries: [QueuedPing] = []) {
+            self.entries = entries
+        }
+
+        var currentEntries: [QueuedPing] {
+            lock.withLock { entries }
+        }
+
+        var replaceCalls: [[QueuedPing]] {
+            lock.withLock { replaceCallsStorage }
+        }
+
+        func load() async throws -> [QueuedPing] {
+            if let loadErrorToThrow {
+                throw loadErrorToThrow
+            }
+            return lock.withLock { entries }
+        }
+
+        func append(_ ping: QueuedPing) async throws {
+            lock.withLock { entries.append(ping) }
+        }
+
+
+        func apply(removing: Set<UUID>, updating: [QueuedPing]) async throws {
+            if let applyErrorToThrow { throw applyErrorToThrow }
+            lock.withLock {
+                let replacements = Dictionary(updating.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
+                entries = entries.compactMap { entry in
+                    if removing.contains(entry.id) { return nil }
+                    return replacements[entry.id] ?? entry
+                }
+                replaceCallsStorage.append(entries)
+            }
+        }
+    }
+
+    /// Commits every `apply` until the Nth, which throws -- so a drain commits some entries and
+    /// then loses the ability to record the rest, exactly as a device locking mid-drain does.
+    private final class FailOnNthApply: PingQueueStoring, @unchecked Sendable {
+        private let lock = NSLock()
+        private var entries: [QueuedPing]
+        private var applyCount = 0
+        private let failingOn: Int
+
+        init(entries: [QueuedPing], failingOn: Int) {
+            self.entries = entries
+            self.failingOn = failingOn
+        }
+
+        var currentEntries: [QueuedPing] { lock.withLock { entries } }
+
+        func load() async throws -> [QueuedPing] { lock.withLock { entries } }
+        func append(_ ping: QueuedPing) async throws { lock.withLock { entries.append(ping) } }
+
+        func apply(removing: Set<UUID>, updating: [QueuedPing]) async throws {
+            let shouldFail: Bool = lock.withLock {
+                applyCount += 1
+                return applyCount >= failingOn
+            }
+            if shouldFail { throw PingQueueError.unavailable }
+            lock.withLock {
+                let replacements = Dictionary(updating.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
+                entries = entries.compactMap { entry in
+                    if removing.contains(entry.id) { return nil }
+                    return replacements[entry.id] ?? entry
+                }
+            }
+        }
+    }
+
+    /// Replays a caller-set script of responses or errors, one per call, holding past the end of
+    /// the script on a plain 200 -- most tests below only ever need one or two calls answered.
+    /// Lock-guarded for the same nonisolated-`async` reason as `FakeQueueStore`.
+    private final class FakeTransport: PingTransport, @unchecked Sendable {
+        private let lock = NSLock()
+        private var script: [Result<PingResponse, Error>]
+        private var index = 0
+        private var callCountStorage = 0
+
+        init(script: [Result<PingResponse, Error>] = []) {
+            self.script = script
+        }
+
+        var callCount: Int { lock.withLock { callCountStorage } }
+
+        func send(_ payload: PingPayload, using credentials: WebhookCredentials) async throws -> PingResponse {
+            let outcome: Result<PingResponse, Error> = lock.withLock {
+                callCountStorage += 1
+                guard !script.isEmpty else {
+                    return .success(PingResponse(statusCode: 200, body: ""))
+                }
+                let result = script[min(index, script.count - 1)]
+                index += 1
+                return result
+            }
+            switch outcome {
+            case .success(let response): return response
+            case .failure(let error): throw error
+            }
+        }
+    }
+
+    /// A transport that actually suspends, so a second drain can enter the actor while the first
+    /// is parked at its `await`. `FakeTransport` returns immediately and never leaves that window
+    /// open, which is why the reentrancy bug survived its whole suite.
+    private final class SlowTransport: PingTransport, @unchecked Sendable {
+        private let lock = NSLock()
+        private var callCountStorage = 0
+        private let delay: Duration
+
+        init(delay: Duration) { self.delay = delay }
+
+        var callCount: Int { lock.withLock { callCountStorage } }
+
+        func send(_ payload: PingPayload, using credentials: WebhookCredentials) async throws -> PingResponse {
+            lock.withLock { callCountStorage += 1 }
+            try? await Task.sleep(for: delay)
+            return PingResponse(statusCode: 200, body: "")
+        }
+    }
+
+    /// Returns a caller-set credential, or throws a caller-set error. `load()` is a synchronous
+    /// (non-`async`) requirement, so every call lands on the actor's own turn -- no lock needed,
+    /// same as `PingSenderTests`'s `FakeCredentialStore`.
+    private final class FakeCredentialStore: CredentialStore, @unchecked Sendable {
+        var stored: WebhookCredentials?
+        var errorToThrow: Error?
+
+        func load() throws -> WebhookCredentials? {
+            if let errorToThrow { throw errorToThrow }
+            return stored
+        }
+        func save(_ credentials: WebhookCredentials) throws {}
+        func clear() throws {}
+    }
+
+    // MARK: Fixtures -- synthetic values only, none resolves anywhere.
+
+    private static let fixedNow = Date(timeIntervalSince1970: 1_700_000_000)
+
+    private static let fixtureCredentials = WebhookCredentials(
+        url: URL(string: "https://example.invalid/webhook")!,
+        senderKey: "dummy-sender-key-drain-test",
+        headerName: "X-Test-Key")
+
+    private static func makeQueuedPing(
+        id: UUID = UUID(),
+        firstAttemptAt: Date = fixedNow,
+        attemptsMade: Int = 1,
+        nextAttemptAt: Date = fixedNow,
+        permanentFailure: String? = nil
+    ) -> QueuedPing {
+        QueuedPing(
+            id: id,
+            payload: PingPayload(
+                latitude: 40.77465,
+                longitude: 17.23107,
+                accuracyMetres: 5.0,
+                label: "Test ping",
+                capturedAt: fixedNow
+            ),
+            firstAttemptAt: firstAttemptAt,
+            attemptsMade: attemptsMade,
+            nextAttemptAt: nextAttemptAt,
+            permanentFailure: permanentFailure
+        )
+    }
+
+    private static func makeDrain(
+        store: any PingQueueStoring,
+        credentials: FakeCredentialStore,
+        transport: any PingTransport,
+        policy: PingRetryPolicy = .standard,
+        now: @escaping @Sendable () -> Date = { fixedNow }
+    ) -> PingQueueDrain {
+        PingQueueDrain(store: store, credentials: credentials, transport: transport, policy: policy, now: now)
+    }
+
+    private static let farFutureDeadline = fixedNow.addingTimeInterval(86_400)
+
+    // MARK: Tests
+
+    /// Found on a simulator during phase 03 acceptance, 2026-09-11: ONE queued ping, TWO POSTs at
+    /// the receiver with the same `at` in the same second.
+    ///
+    /// Both drains fire on launch -- `.task { start() }` drains, and `scenePhase` -> `.active`
+    /// drains again -- and `PingQueueDrain` is an `actor`, which serializes entry but is REENTRANT
+    /// across `await`. Drain A loads the queue and suspends on `transport.send`; drain B enters
+    /// during that suspension, loads the same not-yet-replaced queue, and sends the same entry.
+    /// `drain()`'s own comment claimed it "cannot re-send a ping it already delivered" -- true of
+    /// sequential drains, false of reentrant ones. Every existing test in this suite drives one
+    /// drain at a time, which is exactly why none of them caught it.
+    ///
+    /// Not data loss, so SC-02 still holds; it is duplicate delivery, which spends SC-04's "no
+    /// more than 4 pings per minute reach the routine" budget on the same ping twice.
+    @Test
+    func twoConcurrentDrainsDeliverAQueuedPingExactlyOnce() async throws {
+        let entry = Self.makeQueuedPing()
+        let store = FakeQueueStore(entries: [entry])
+        let credentials = FakeCredentialStore()
+        credentials.stored = Self.fixtureCredentials
+        // Suspends inside `send`, holding drain A at the await long enough for drain B to enter.
+        let transport = SlowTransport(delay: .milliseconds(150))
+        let drain = Self.makeDrain(store: store, credentials: credentials, transport: transport)
+
+        async let first = drain.drain(before: Self.farFutureDeadline, surfacingFailures: true)
+        async let second = drain.drain(before: Self.farFutureDeadline, surfacingFailures: true)
+        let reports = await [first, second]
+
+        #expect(transport.callCount == 1, "the queued ping reached the webhook \(transport.callCount) times")
+        // Exactly one drain reports the delivery; the other reports nothing rather than repeating it.
+        #expect(reports.map { $0.updates.count }.sorted() == [0, 1])
+        #expect(store.currentEntries.isEmpty)
+    }
+
+    /// The append-vs-drain half of the read-modify-write hole. Found independently by the
+    /// correctness and tests lenses at PR review, each with a failing reproduction.
+    ///
+    /// `isDraining` closed drain-vs-drain. This is the same shape one call site over, and it loses
+    /// data instead of duplicating it: `drain()` snapshots the queue before its first `await`, then
+    /// parks on the network for up to 30s, during which the user can tap "I'm here" and have
+    /// `DurablePingSink` append to the SAME store. The drain then wrote back a value derived from
+    /// its stale snapshot and the new ping was gone from disk — while its row still read Queued.
+    /// That is SC-02's one forbidden outcome, a silent drop wearing a success label, and it is
+    /// worse than the double delivery that was fixed first, which at least delivered.
+    ///
+    /// The connectivity edge makes it MORE likely, not less: that trigger fires exactly when the
+    /// network just came back, which is exactly when someone taps.
+    @Test
+    func aPingQueuedDuringADrainIsNotErasedByTheRewrite() async throws {
+        let inFlight = Self.makeQueuedPing()
+        let store = FakeQueueStore(entries: [inFlight])
+        let credentials = FakeCredentialStore()
+        credentials.stored = Self.fixtureCredentials
+        let transport = SlowTransport(delay: .milliseconds(200))
+        let drain = Self.makeDrain(store: store, credentials: credentials, transport: transport)
+
+        async let draining = drain.drain(before: Self.farFutureDeadline, surfacingFailures: true)
+
+        // Lands while the drain is parked on the network, exactly as a real tap would.
+        try await Task.sleep(for: .milliseconds(60))
+        let late = Self.makeQueuedPing()
+        try await store.append(late)
+
+        _ = await draining
+
+        #expect(
+            store.currentEntries.contains { $0.id == late.id },
+            "the ping queued mid-drain was erased by the drain's write; file holds \(store.currentEntries.count) entries")
+        #expect(!store.currentEntries.contains { $0.id == inFlight.id }, "the delivered entry should be gone")
+        #expect(transport.callCount == 1, "the late ping was not due and must not have been sent")
+    }
+
+    /// The device locking DURING a drain, found by the security and tests lenses in round 2 --
+    /// and made reachable by the round-1 fix that introduced `.unavailable`.
+    ///
+    /// A background drain has a 25s budget; the device can lock inside it. The delta write then
+    /// throws, and while that was `try?` the drain kept walking: it delivered every remaining
+    /// entry, removed none of them, and re-POSTed the lot on the next drain. Same coordinates to
+    /// the webhook twice, D-12 condition 3 silently unmet, SC-04's budget spent twice on one ping
+    /// -- the duplicate delivery of 64f7b7d back by a different route. If the queue cannot record
+    /// what was just done, the drain stops.
+    @Test
+    func aFailedDeltaWriteStopsTheDrainInsteadOfDeliveringMore() async throws {
+        let first = Self.makeQueuedPing()
+        let second = Self.makeQueuedPing()
+        let store = FakeQueueStore(entries: [first, second])
+        store.applyErrorToThrow = PingQueueError.unavailable
+        let credentials = FakeCredentialStore()
+        credentials.stored = Self.fixtureCredentials
+        let transport = FakeTransport()
+        let drain = Self.makeDrain(store: store, credentials: credentials, transport: transport)
+
+        _ = await drain.drain(before: Self.farFutureDeadline, surfacingFailures: true)
+
+        #expect(
+            transport.callCount == 1,
+            "the drain delivered \(transport.callCount) pings it could not remove; each is re-POSTed next drain")
+        #expect(store.currentEntries.count == 2, "nothing could be written, so nothing was removed")
+    }
+
+    /// The report must agree with disk. On a failed delta write the drain reports what actually
+    /// persisted and drops the one update it could not commit -- otherwise a row reads Sent for a
+    /// ping still sitting in the queue, which the next drain re-POSTs. Earlier entries stay
+    /// reported: the delta is cumulative, so their removal was already committed by the last
+    /// successful apply.
+    @Test
+    func aFailedDeltaWriteDoesNotReportTheUpdateItCouldNotPersist() async throws {
+        let first = Self.makeQueuedPing()
+        let second = Self.makeQueuedPing()
+        let store = FailOnNthApply(entries: [first, second], failingOn: 2)
+        let credentials = FakeCredentialStore()
+        credentials.stored = Self.fixtureCredentials
+        let transport = FakeTransport()
+        let drain = Self.makeDrain(store: store, credentials: credentials, transport: transport)
+
+        let report = await drain.drain(before: Self.farFutureDeadline, surfacingFailures: true)
+
+        // The first entry committed; the second was delivered but its removal never landed.
+        #expect(report.updates.count == 1, "reported \(report.updates.count) updates; only one persisted")
+        #expect(report.updates.first?.id == first.id)
+        #expect(store.currentEntries.map(\.id) == [second.id])
+    }
+
+    /// A locked device is not a lost queue. `.unavailable` means the file could not be opened
+    /// right now (the protection class this file is deliberately stored under), so the drain must
+    /// do nothing, write nothing, and — critically — say nothing: a notice here would tell the
+    /// user their pings failed because the phone was in their pocket, and the next unlocked drain
+    /// picks the queue up untouched.
+    @Test
+    func aLockedDeviceDrainsNothingAndReportsNothing() async throws {
+        let store = FakeQueueStore(entries: [Self.makeQueuedPing()])
+        store.loadErrorToThrow = PingQueueError.unavailable
+        let credentials = FakeCredentialStore()
+        credentials.stored = Self.fixtureCredentials
+        let transport = FakeTransport()
+        let drain = Self.makeDrain(store: store, credentials: credentials, transport: transport)
+
+        let report = await drain.drain(before: Self.farFutureDeadline, surfacingFailures: true)
+
+        #expect(report.updates.isEmpty)
+        #expect(report.notice == nil, "a locked device must not produce a user-facing notice")
+        #expect(transport.callCount == 0)
+        #expect(store.replaceCalls.isEmpty, "nothing may be written when the queue could not be read")
+    }
+
+    @Test
+    func aDeliveredPingIsRemovedFromTheFileAndReportedSent() async throws {
+        let entry = Self.makeQueuedPing()
+        let store = FakeQueueStore(entries: [entry])
+        let credentials = FakeCredentialStore()
+        credentials.stored = Self.fixtureCredentials
+        let transport = FakeTransport(script: [.success(PingResponse(statusCode: 200, body: ""))])
+        let drain = Self.makeDrain(store: store, credentials: credentials, transport: transport)
+
+        let report = await drain.drain(before: Self.farFutureDeadline, surfacingFailures: true)
+
+        #expect(report.updates.count == 1)
+        #expect(report.updates.first?.id == entry.id)
+        #expect(report.updates.first?.outcome == .sent)
+        #expect(report.updates.first?.reason == nil)
+        #expect(report.notice == nil)
+        #expect(store.replaceCalls.last?.isEmpty == true)
+        #expect(store.currentEntries.isEmpty)
+    }
+
+    @Test
+    func aPingNotYetDueIsLeftCompletelyAlone() async throws {
+        let entry = Self.makeQueuedPing(nextAttemptAt: Self.fixedNow.addingTimeInterval(3_600))
+        let store = FakeQueueStore(entries: [entry])
+        let credentials = FakeCredentialStore()
+        credentials.stored = Self.fixtureCredentials
+        let transport = FakeTransport()
+        let drain = Self.makeDrain(store: store, credentials: credentials, transport: transport)
+
+        let report = await drain.drain(before: Self.farFutureDeadline, surfacingFailures: true)
+
+        #expect(transport.callCount == 0)
+        #expect(report.updates.isEmpty)
+        #expect(store.currentEntries == [entry])
+    }
+
+    @Test
+    func aRetryableFailureBacksOffWithoutReportingOrRemoving() async throws {
+        let entry = Self.makeQueuedPing(attemptsMade: 1)
+        let store = FakeQueueStore(entries: [entry])
+        let credentials = FakeCredentialStore()
+        credentials.stored = Self.fixtureCredentials
+        let transport = FakeTransport(script: [.success(PingResponse(statusCode: 503, body: ""))])
+        let drain = Self.makeDrain(store: store, credentials: credentials, transport: transport)
+
+        let report = await drain.drain(before: Self.farFutureDeadline, surfacingFailures: true)
+
+        #expect(report.updates.isEmpty)
+        let survivor = try #require(store.currentEntries.first)
+        #expect(store.currentEntries.count == 1)
+        #expect(survivor.attemptsMade == 2)
+        #expect(
+            survivor.nextAttemptAt
+                == PingRetryPolicy.standard.nextAttemptDate(afterAttempts: 2, now: Self.fixedNow))
+    }
+
+    @Test
+    func aPermanentRejectionIsMarkedButKeptWhenNotSurfacing() async throws {
+        let entry = Self.makeQueuedPing()
+        let store = FakeQueueStore(entries: [entry])
+        let credentials = FakeCredentialStore()
+        credentials.stored = Self.fixtureCredentials
+        let transport = FakeTransport(script: [.success(PingResponse(statusCode: 401, body: ""))])
+        let drain = Self.makeDrain(store: store, credentials: credentials, transport: transport)
+
+        guard case .permanentFailure(let expectedReason) =
+            PingClassifier.disposition(for: PingResponse(statusCode: 401, body: "")) else {
+            Issue.record("expected 401 to classify as permanentFailure")
+            return
+        }
+
+        let firstReport = await drain.drain(before: Self.farFutureDeadline, surfacingFailures: false)
+
+        #expect(firstReport.updates.count == 1)
+        #expect(firstReport.updates.first?.outcome == .failed)
+        #expect(firstReport.updates.first?.reason == expectedReason)
+        #expect(store.currentEntries.count == 1)
+        #expect(store.currentEntries.first?.permanentFailure == expectedReason)
+        #expect(transport.callCount == 1)
+
+        // Foreground drain of the SAME store: the failure is surfaced (reported again) and only
+        // now deleted -- this is the background-wake-then-foreground path SC-02 needs.
+        let secondReport = await drain.drain(before: Self.farFutureDeadline, surfacingFailures: true)
+
+        #expect(secondReport.updates.count == 1)
+        #expect(secondReport.updates.first?.outcome == .failed)
+        #expect(secondReport.updates.first?.reason == expectedReason)
+        #expect(store.currentEntries.isEmpty)
+        // Already-marked entries are reported without a second send.
+        #expect(transport.callCount == 1)
+    }
+
+    @Test
+    func givingUpAfterSevenDaysReportsAFailureWithoutSending() async throws {
+        let entry = Self.makeQueuedPing(firstAttemptAt: Self.fixedNow.addingTimeInterval(-8 * 86_400))
+        let store = FakeQueueStore(entries: [entry])
+        let credentials = FakeCredentialStore()
+        credentials.stored = Self.fixtureCredentials
+        let transport = FakeTransport()
+        let drain = Self.makeDrain(store: store, credentials: credentials, transport: transport)
+
+        let report = await drain.drain(before: Self.farFutureDeadline, surfacingFailures: true)
+
+        #expect(transport.callCount == 0)
+        #expect(report.updates.count == 1)
+        #expect(report.updates.first?.outcome == .failed)
+        #expect(report.updates.first?.reason == PingRetryPolicy.gaveUpReason)
+    }
+
+    @Test
+    func missingCredentialsDrainNothingAndDeleteNothing() async throws {
+        let entries = [Self.makeQueuedPing(), Self.makeQueuedPing()]
+        let store = FakeQueueStore(entries: entries)
+        let credentials = FakeCredentialStore()
+        credentials.stored = nil
+        let transport = FakeTransport()
+        let drain = Self.makeDrain(store: store, credentials: credentials, transport: transport)
+
+        let report = await drain.drain(before: Self.farFutureDeadline, surfacingFailures: true)
+
+        #expect(report.updates.isEmpty)
+        #expect(report.notice != nil)
+        #expect(transport.callCount == 0)
+        #expect(store.replaceCalls.isEmpty)
+        #expect(store.currentEntries == entries)
+    }
+
+    @Test
+    func anUnreadableQueueDrainsNothingAndSaysSo() async throws {
+        let store = FakeQueueStore()
+        store.loadErrorToThrow = PingQueueError.unreadable
+        let credentials = FakeCredentialStore()
+        credentials.stored = Self.fixtureCredentials
+        let transport = FakeTransport()
+        let drain = Self.makeDrain(store: store, credentials: credentials, transport: transport)
+
+        let report = await drain.drain(before: Self.farFutureDeadline, surfacingFailures: true)
+
+        #expect(report.updates.isEmpty)
+        #expect(report.notice != nil)
+        #expect(transport.callCount == 0)
+        #expect(store.replaceCalls.isEmpty)
+    }
+
+    @Test
+    func theDeadlineStopsTheWalkAndLeavesTheRestQueued() async throws {
+        let first = Self.makeQueuedPing()
+        let second = Self.makeQueuedPing()
+        let third = Self.makeQueuedPing()
+        let store = FakeQueueStore(entries: [first, second, third])
+        let credentials = FakeCredentialStore()
+        credentials.stored = Self.fixtureCredentials
+        let transport = FakeTransport(script: [
+            .success(PingResponse(statusCode: 200, body: "")),
+            .success(PingResponse(statusCode: 200, body: "")),
+            .success(PingResponse(statusCode: 200, body: "")),
+        ])
+
+        // Advances 20s on every call, captured as a `let Mutex`, not a captured local `var` --
+        // Swift 6 strict concurrency rejects the latter even under a lock (`Connectivity.swift`,
+        // .planning/LEARNINGS.md). A deadline 30s out is crossed on the 4th call (t=60), which
+        // this drain's per-entry sequence of now() calls reaches partway through the second
+        // entry, before it is ever sent.
+        let callCount = Mutex(0)
+        let now: @Sendable () -> Date = {
+            let elapsed = callCount.withLock { count -> TimeInterval in
+                let value = TimeInterval(count) * 20
+                count += 1
+                return value
+            }
+            return Self.fixedNow.addingTimeInterval(elapsed)
+        }
+        let deadline = Self.fixedNow.addingTimeInterval(30)
+        let drain = Self.makeDrain(
+            store: store, credentials: credentials, transport: transport, now: now)
+
+        let report = await drain.drain(before: deadline, surfacingFailures: true)
+
+        #expect(transport.callCount < 3)
+        let remainingIDs = Set(store.currentEntries.map(\.id))
+        let sentIDs = Set(report.updates.filter { $0.outcome == .sent }.map(\.id))
+        #expect(remainingIDs.isDisjoint(with: sentIDs))
+        #expect(remainingIDs.count + sentIDs.count == 3)
+        // Every entry still on file is byte-for-byte the entry that went in -- untouched, not
+        // merely un-sent.
+        for remaining in store.currentEntries {
+            let original = [first, second, third].first { $0.id == remaining.id }
+            #expect(remaining == original)
+        }
+    }
+
+    @Test
+    func theFileIsRewrittenAfterEachEntryNotOnlyAtTheEnd() async throws {
+        let first = Self.makeQueuedPing()
+        let second = Self.makeQueuedPing()
+        let third = Self.makeQueuedPing()
+        let store = FakeQueueStore(entries: [first, second, third])
+        let credentials = FakeCredentialStore()
+        credentials.stored = Self.fixtureCredentials
+        let transport = FakeTransport(script: [
+            .success(PingResponse(statusCode: 200, body: "")),
+            .success(PingResponse(statusCode: 200, body: "")),
+            .success(PingResponse(statusCode: 200, body: "")),
+        ])
+        let drain = Self.makeDrain(store: store, credentials: credentials, transport: transport)
+
+        let report = await drain.drain(before: Self.farFutureDeadline, surfacingFailures: true)
+
+        #expect(report.updates.count == 3)
+        #expect(store.replaceCalls.count == 3)
+        #expect(store.replaceCalls.map(\.count) == [2, 1, 0])
+        #expect(store.currentEntries.isEmpty)
+    }
+}

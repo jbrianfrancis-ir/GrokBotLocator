@@ -20,16 +20,18 @@ struct PingPayload: Codable, Sendable, Equatable {
     let longitude: Double
     let accuracyMetres: Double
     let label: String
+    let capturedAt: Date
 
     private enum CodingKeys: String, CodingKey {
         case latitude = "lat"
         case longitude = "lng"
         case accuracyMetres = "accuracy_m"
         case label
+        case capturedAt = "at"
     }
 
     /// Composes the wire bytes directly, in ARCHITECTURE's exact key order --
-    /// `lat, lng, accuracy_m, label` -- rather than delegating object construction to
+    /// `lat, lng, accuracy_m, label, at` -- rather than delegating object construction to
     /// `JSONEncoder`. `label` is always present, empty string included; it is never optional
     /// and never omitted.
     func encoded() throws -> Data {
@@ -52,7 +54,15 @@ struct PingPayload: Codable, Sendable, Equatable {
         let quotedArray = try JSONEncoder().encode([label])
         let quotedLabel = String(decoding: quotedArray.dropFirst().dropLast(), as: UTF8.self)
 
-        let json = "{\"lat\":\(latText),\"lng\":\(lngText),\"accuracy_m\":\(accuracyText),\"label\":\(quotedLabel)}"
+        // `at` is the ISO-8601 UTC instant of the FIX (`capturedAt`), never of this encode
+        // call -- ARCHITECTURE's D-12. Escaped through the same single-element-array trick as
+        // `label`, so exactly one rule governs string escaping in this file.
+        let atText = capturedAt.formatted(Date.ISO8601FormatStyle(timeZone: .gmt))
+        let quotedAtArray = try JSONEncoder().encode([atText])
+        let quotedAt = String(decoding: quotedAtArray.dropFirst().dropLast(), as: UTF8.self)
+
+        let json =
+            "{\"lat\":\(latText),\"lng\":\(lngText),\"accuracy_m\":\(accuracyText),\"label\":\(quotedLabel),\"at\":\(quotedAt)}"
         return Data(json.utf8)
     }
 }

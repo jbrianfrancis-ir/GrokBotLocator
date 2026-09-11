@@ -8,6 +8,23 @@ struct PingAttempt: Sendable, Equatable {
     let disposition: PingDisposition
     let statusCode: Int?
     let responseBody: String?
+    /// The queue entry's own identity, non-nil if and only if this payload is now held by the
+    /// sink under this id. Minted by the sink -- it is what writes the entry -- and carried back
+    /// here so a later drain (03-09) can say which ping was delivered, and so `PingModel` (03-07)
+    /// can stamp a history row with the same id as the queue entry it came from. Defaulted so
+    /// every existing call site (previews, tests) keeps compiling untouched.
+    let queuedID: UUID?
+
+    init(
+        fix: LocationFix?, disposition: PingDisposition, statusCode: Int?, responseBody: String?,
+        queuedID: UUID? = nil
+    ) {
+        self.fix = fix
+        self.disposition = disposition
+        self.statusCode = statusCode
+        self.responseBody = responseBody
+        self.queuedID = queuedID
+    }
 }
 
 /// Phase 03's seam (REQ-05): the durable on-disk queue conforms to this protocol and replaces
@@ -26,7 +43,9 @@ struct PingAttempt: Sendable, Equatable {
 /// a value". And it matches `PingDisposition`, which is already this pattern -- a closed set of
 /// outcomes, each failure carrying a finished sentence.
 enum PingEnqueueOutcome: Sendable, Equatable {
-    case queued
+    /// `id` is the queue entry's own identity, minted by the sink because the sink is what
+    /// writes the entry -- and it is what lets a later drain say which ping was delivered.
+    case queued(id: UUID)
     case notQueued(reason: String)
 }
 
@@ -128,10 +147,13 @@ struct PingSender: PingSending {
             responseBody = nil
         }
 
+        // Non-nil only when the retryable arm below gets a `.queued(id:)` back -- every other
+        // path (delivered, or permanently rejected) is held by nothing.
+        var queuedID: UUID?
         if case .retryable(let reason) = disposition {
             switch await pending.enqueue(payload, reason: reason) {
-            case .queued:
-                break  // disposition stays .retryable -- it really is pending somewhere
+            case .queued(let id):
+                queuedID = id  // disposition stays .retryable -- it really is pending somewhere
             case .notQueued(let why):
                 // Nothing holds this ping, so it is final for the user: gone, here is why, tap
                 // again. `.permanentFailure` already means and renders exactly that, and the
@@ -141,6 +163,7 @@ struct PingSender: PingSending {
         }
 
         return PingAttempt(
-            fix: fix, disposition: disposition, statusCode: statusCode, responseBody: responseBody)
+            fix: fix, disposition: disposition, statusCode: statusCode, responseBody: responseBody,
+            queuedID: queuedID)
     }
 }
