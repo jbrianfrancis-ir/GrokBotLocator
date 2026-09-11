@@ -1,6 +1,21 @@
 import Foundation
 import Observation
 
+/// The seam `SettingsModel` depends on for REQ-09/REQ-10's trigger controls -- never the
+/// concrete `TriggerCoordinator` actor -- so this model is testable with a fake and no
+/// CoreLocation (ARCHITECTURE: views never touch the location manager directly; this keeps
+/// the model that far from it too).
+protocol TriggerControlling: Sendable {
+    func update(_ settings: TriggerSettings) async
+    func currentSettings() async -> TriggerSettings
+    func authorizationNotice() async -> String?
+}
+
+/// Retroactive conformance, kept here rather than on the actor itself (04-11): `TriggerCoordinator`
+/// already has exactly these three methods with this shape, so this is a declaration that they
+/// satisfy the protocol, not new behaviour -- 04-11's file is untouched.
+extension TriggerCoordinator: TriggerControlling {}
+
 /// The settings screen's state machine: load from a `CredentialStore`, validate on save,
 /// report the outcome. No Keychain, no network, no view -- 01-12 renders this model, and
 /// tests inject a fake store (see `SettingsModelTests`) so nothing here ever touches the
@@ -37,17 +52,32 @@ final class SettingsModel {
     /// flight and a second call while one is running is ignored outright.
     private(set) var isTesting = false
 
+    /// REQ-09's switches and interval, as the coordinator (or a test fake) last reported them.
+    /// Read-only from outside: the only writers are `loadTriggers()` and the `setX` methods
+    /// below, each of which goes through `triggers` before assigning here.
+    private(set) var triggerSettings: TriggerSettings = .initial
+    /// REQ-10's sentence about what the current authorization level does not allow, or `nil`
+    /// when there is nothing to say. Refreshed after every trigger change, not just on load, so
+    /// a refused Always prompt produces its sentence without the user leaving the screen.
+    private(set) var triggerNotice: String?
+
     private let store: CredentialStore
     /// Optional so every existing call site and test builds a model without one; the app
     /// passes the same `PingSender` the home screen's button uses (02-13).
     private let sender: PingSending?
+    /// Optional the same way `sender` is: nil means the app came up with no coordinator
+    /// (matching how the queue coordinator is already optional in the composition root), and a
+    /// missing coordinator must not make Settings unusable -- flipping a switch still moves it,
+    /// there is just nothing downstream to arm.
+    private let triggers: (any TriggerControlling)?
 
     /// Depends on the `CredentialStore` protocol only -- never constructs a
     /// `KeychainCredentialStore` itself -- so tests inject a fake and the real Keychain is
     /// never touched outside the app.
-    init(store: CredentialStore, sender: PingSending? = nil) {
+    init(store: CredentialStore, sender: PingSending? = nil, triggers: (any TriggerControlling)? = nil) {
         self.store = store
         self.sender = sender
+        self.triggers = triggers
     }
 
     /// Fills `urlText` and `headerName` from the store. Never assigns the stored key to
@@ -172,6 +202,60 @@ final class SettingsModel {
         connectionReport = ConnectionReport(
             succeeded: succeeded, headline: headline, statusCode: attempt.statusCode,
             responseBody: attempt.responseBody)
+    }
+
+    // MARK: - Trigger controls (REQ-09/REQ-10)
+
+    /// Reads the coordinator's current settings and notice into this model. Called from the
+    /// view's `.task`, the same place `load()` already runs from. With no coordinator, leaves
+    /// both at their defaults -- `.initial` and `nil` -- rather than trapping.
+    func loadTriggers() async {
+        guard let triggers else { return }
+        triggerSettings = await triggers.currentSettings()
+        triggerNotice = await triggers.authorizationNotice()
+    }
+
+    /// Flips the significant-change switch and no other. Assigns the new settings locally
+    /// FIRST so the switch moves immediately even with no coordinator, then tells the
+    /// coordinator and refreshes the notice -- refreshing AFTER the update is what makes a
+    /// refused Always prompt produce its sentence without the user leaving the screen.
+    func setSignificantChange(_ on: Bool) async {
+        var newSettings = triggerSettings
+        newSettings.significantChangeEnabled = on
+        await apply(newSettings)
+    }
+
+    /// Flips the visits switch and no other. Same shape as `setSignificantChange`.
+    func setVisits(_ on: Bool) async {
+        var newSettings = triggerSettings
+        newSettings.visitsEnabled = on
+        await apply(newSettings)
+    }
+
+    /// Flips the geofence switch and no other. Same shape as `setSignificantChange`.
+    func setGeofence(_ on: Bool) async {
+        var newSettings = triggerSettings
+        newSettings.geofenceEnabled = on
+        await apply(newSettings)
+    }
+
+    /// Routes through `TriggerSettings.setMinimumInterval` so the floor applies even if a
+    /// caller (a Stepper landing exactly on the boundary, or a future caller) passes something
+    /// smaller than `PingRateLimiter.hardFloor` -- the clamp lives once, in `TriggerSettings`,
+    /// never restated here.
+    func setMinimumInterval(_ seconds: TimeInterval) async {
+        var newSettings = triggerSettings
+        newSettings.setMinimumInterval(seconds)
+        await apply(newSettings)
+    }
+
+    /// The shared tail every `setX` above ends in: move the switch immediately, tell the
+    /// coordinator (if there is one), then refresh the notice from its post-update answer.
+    private func apply(_ newSettings: TriggerSettings) async {
+        triggerSettings = newSettings
+        guard let triggers else { return }
+        await triggers.update(newSettings)
+        triggerNotice = await triggers.authorizationNotice()
     }
 
     /// `nil` unless `text` trims to a parseable URL with an `https` scheme and a non-empty
