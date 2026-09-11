@@ -438,4 +438,40 @@ struct PingSenderTests {
 
         #expect(outcome == .notQueued(reason: "Server said try later."))
     }
+
+    // MARK: send(label:using:) -- the automatic path (04-10). The fix is already in hand, so
+    // credentials, transport, classification and the queue seam are the only things exercised;
+    // `LocationFixProvider.currentFix()` must never run.
+
+    @Test
+    func sendingWithAFixInHandTakesNoNewFix() async {
+        let fakes = Fakes()
+        fakes.credentials.stored = Self.fixtureCredentials
+        fakes.transport.responseToReturn = PingResponse(statusCode: 200, body: #"{"ok":true}"#)
+
+        let attempt = await fakes.makeSender().send(label: "Ostuni", using: Self.fixtureFix)
+
+        #expect(fakes.fixes.currentFixCallCount == 0)
+        #expect(attempt.disposition == .sent)
+        #expect(fakes.transport.capturedPayload?.label == "Ostuni")
+        #expect(fakes.transport.capturedPayload?.latitude == Self.fixtureFix.latitude)
+        #expect(fakes.transport.capturedPayload?.longitude == Self.fixtureFix.longitude)
+    }
+
+    @Test
+    func aRetryableSendWithAFixInHandStillReachesTheQueue() async {
+        let fakes = Fakes()
+        fakes.credentials.stored = Self.fixtureCredentials
+        fakes.transport.responseToReturn = PingResponse(statusCode: 503, body: "try later")
+
+        let attempt = await fakes.makeSender().send(label: "Gallipoli", using: Self.fixtureFix)
+
+        guard case .retryable = attempt.disposition else {
+            Issue.record("expected .retryable, got \(attempt.disposition)")
+            return
+        }
+        #expect(fakes.sink.enqueueCallCount == 1)
+        #expect(attempt.queuedID == fakes.sink.queuedID)
+        #expect(fakes.fixes.currentFixCallCount == 0)
+    }
 }
