@@ -62,6 +62,19 @@ enum PingQueueError: Error, Equatable {
     /// be recovered, and the next write starts a clean file.
     case unreadable
 
+    /// The queue file exists and is almost certainly intact, but the bytes could not be read
+    /// right now. The overwhelmingly likely cause is the protection class this file is
+    /// deliberately stored under: `.completeFileProtectionUnlessOpen` means a closed file cannot
+    /// be opened while the device is locked, and a `BGAppRefreshTask` wake is exactly when the
+    /// device is locked. NOTHING is moved aside and nothing is lost — the caller must treat this
+    /// as "not now", drain nothing, report nothing, and try again after the next unlock.
+    ///
+    /// Separating this from `.unreadable` is not a nicety. While both shared one `catch`, a
+    /// background wake on a locked phone renamed the entire pending queue to
+    /// `PingQueue-unreadable.json` and told the user their pings "cannot be delivered" — SC-02's
+    /// one promise, broken by the durability mechanism itself, on the most ordinary path there is.
+    case unavailable
+
     /// The queue already holds `FilePingQueueStore.capacity` entries. The new ping was NOT
     /// queued and nothing already queued was evicted to make room -- the caller must turn this
     /// into a user-visible failure for the ping that was just attempted, the same way any other
@@ -138,14 +151,27 @@ actor FilePingQueueStore: PingQueueStoring {
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
             return []
         }
+        // The read and the decode are deliberately separate `do` blocks. They used to share one
+        // `catch`, which meant ANY failure to open the file was treated as corruption and moved
+        // the whole queue aside. This file is stored `.completeFileProtectionUnlessOpen`, so a
+        // closed file cannot be opened while the device is locked -- and the background drain
+        // runs precisely then. `fileExists` still succeeds (the directory entry is readable; only
+        // the content is encrypted), so the guard above passes and the read is what throws.
+        let data: Data
         do {
-            let data = try Data(contentsOf: fileURL)
+            data = try Data(contentsOf: fileURL)
+        } catch {
+            // Not corruption. Nothing is moved, nothing is lost, and the caller tries again after
+            // the next unlock.
+            throw PingQueueError.unavailable
+        }
+
+        do {
             return try JSONDecoder().decode([QueuedPing].self, from: data)
         } catch {
-            // The file could not be read back as a queue -- set it aside rather than delete it
-            // (its entries were never delivered, so keeping them breaks none of D-12's four
-            // conditions) and report an honest failure. The next write starts a clean file, so
-            // this reports the failure exactly once rather than on every subsequent load.
+            // The bytes really did come back and really are not a queue -- set the file aside
+            // rather than delete it and report an honest failure. The next write starts a clean
+            // file, so this reports the failure exactly once rather than on every load.
             try setAsideUnreadableFile()
             throw PingQueueError.unreadable
         }

@@ -24,7 +24,6 @@ struct PingQueueDrainTests {
         private var entries: [QueuedPing]
         private var replaceCallsStorage: [[QueuedPing]] = []
         var loadErrorToThrow: Error?
-        var entriesNow: [QueuedPing] { lock.withLock { entries } }
 
         init(entries: [QueuedPing] = []) {
             self.entries = entries
@@ -199,7 +198,29 @@ struct PingQueueDrainTests {
         #expect(transport.callCount == 1, "the queued ping reached the webhook \(transport.callCount) times")
         // Exactly one drain reports the delivery; the other reports nothing rather than repeating it.
         #expect(reports.map { $0.updates.count }.sorted() == [0, 1])
-        #expect(store.entriesNow.isEmpty)
+        #expect(store.currentEntries.isEmpty)
+    }
+
+    /// A locked device is not a lost queue. `.unavailable` means the file could not be opened
+    /// right now (the protection class this file is deliberately stored under), so the drain must
+    /// do nothing, write nothing, and — critically — say nothing: a notice here would tell the
+    /// user their pings failed because the phone was in their pocket, and the next unlocked drain
+    /// picks the queue up untouched.
+    @Test
+    func aLockedDeviceDrainsNothingAndReportsNothing() async throws {
+        let store = FakeQueueStore(entries: [Self.makeQueuedPing()])
+        store.loadErrorToThrow = PingQueueError.unavailable
+        let credentials = FakeCredentialStore()
+        credentials.stored = Self.fixtureCredentials
+        let transport = FakeTransport()
+        let drain = Self.makeDrain(store: store, credentials: credentials, transport: transport)
+
+        let report = await drain.drain(before: Self.farFutureDeadline, surfacingFailures: true)
+
+        #expect(report.updates.isEmpty)
+        #expect(report.notice == nil, "a locked device must not produce a user-facing notice")
+        #expect(transport.callCount == 0)
+        #expect(store.replaceCalls.isEmpty, "nothing may be written when the queue could not be read")
     }
 
     @Test

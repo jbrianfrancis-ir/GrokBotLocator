@@ -37,6 +37,13 @@ struct DurablePingSink: PendingPingSink {
             return .notQueued(
                 reason: "The offline queue is full (200 pings waiting), so this ping was not "
                     + "saved. Send or clear the waiting pings, then tap I'm here again.")
+        } catch PingQueueError.unavailable {
+            // Locked device: the queue is intact but cannot be opened, so this ping genuinely was
+            // not saved and must be refused honestly -- but the sentence must not blame the queue
+            // or send the user to fix anything, because nothing is broken.
+            return .notQueued(
+                reason: "This ping could not be saved while the device is locked. Unlock the "
+                    + "device and tap I'm here again.")
         } catch PingQueueError.unreadable {
             return .notQueued(
                 reason: "The offline queue file could not be read and has been set aside, so "

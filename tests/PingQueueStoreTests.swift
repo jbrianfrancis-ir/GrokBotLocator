@@ -115,6 +115,43 @@ struct PingQueueStoreTests {
         #expect(loaded.first?.id == pings.first?.id)
     }
 
+    /// The failure this separates from corruption, found by the security lens at PR review.
+    ///
+    /// The queue file is stored `.completeFileProtectionUnlessOpen`, so a closed file cannot be
+    /// opened while the device is locked — and `BGAppRefreshTask` fires exactly then. The read and
+    /// the decode once shared one `catch`, so a locked-device read renamed the ENTIRE pending
+    /// queue to `PingQueue-unreadable.json` and told the user the pings "cannot be delivered":
+    /// SC-02's one promise broken by the durability mechanism, because the phone was in a pocket.
+    ///
+    /// `chmod 000` stands in for the locked-device read here — the simulator does not enforce data
+    /// protection, so an unreadable-by-permissions file is the honest local analogue of an
+    /// unreadable-by-encryption one. What is pinned is the BRANCH: a read that fails must throw
+    /// `.unavailable`, move nothing, and leave the queue exactly where it was.
+    @Test
+    func aFileThatCannotBeReadIsNotTreatedAsCorruptAndIsLeftAlone() async throws {
+        let (directory, teardown) = Self.throwawayDirectory()
+        defer { teardown() }
+
+        let fileURL = directory.appendingPathComponent("PingQueue.json")
+        let store = FilePingQueueStore(directory: directory)
+        try await store.append(Self.makeQueuedPing())
+        let bytesBefore = try Data(contentsOf: fileURL)
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: fileURL.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: fileURL.path) }
+
+        await #expect(throws: PingQueueError.unavailable) {
+            try await store.load()
+        }
+
+        // The queue is still there, byte for byte, and nothing was set aside.
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: fileURL.path)
+        #expect(try Data(contentsOf: fileURL) == bytesBefore)
+        #expect(!FileManager.default.fileExists(
+            atPath: directory.appendingPathComponent("PingQueue-unreadable.json").path))
+        #expect(try await store.load().count == 1)
+    }
+
     @Test
     func anUnreadableFileIsSetAsideAndReported() async throws {
         let (directory, teardown) = Self.throwawayDirectory()
