@@ -37,11 +37,26 @@
 - App code under `src/`, tests under `tests/`; `project.yml` and `scripts/` at the root.
 - Feature folders under `src/` (`Settings/`, `Ping/`, `Triggers/`, `Queue/`) plus `Core/` for Keychain/payload/transport.
 - Offline queue is a `Codable` array in Application Support via `FileManager` — no SwiftData, no Core Data. The file is the durability mechanism; drain on every wake with a plain `URLSession`. `URLSessionConfiguration.background` is not the primary path.
-- **The queue file is the one sanctioned store for coordinates** (D-12, 2026-09-10). It is the single
-  exception to the Forbidden entry below, and it is narrow: written with
+- **The queue file is a sanctioned store for coordinates** (D-12, 2026-09-10). Narrow: written with
   `.completeFileProtectionUnlessOpen`, excluded from backups (`isExcludedFromBackup`), each entry
   deleted the moment it is delivered, and never copied anywhere else. A queue that keeps delivered
   pings is a location history, which is not what this is for.
+- **The last-ping coordinate is the second sanctioned store** (D-16, 2026-09-11). D-12's "never
+  copied anywhere else" is widened by exactly this much and no further. REQ-08 re-registers a
+  geofence at the last ping, and a cold relaunch has no other way to recover where that was —
+  `CLMonitor` persistence is unverified, and without a durable record the trigger cannot arm at all
+  in a geofence-only configuration. Conditions, all binding:
+  - **Exactly ONE coordinate, overwritten in place, never appended.** A single overwritten point is
+    not a location history; a list of them is, and that is what D-12 exists to forbid.
+  - Excluded from backups (`isExcludedFromBackup`), same as the queue.
+  - Protection class `.completeUntilFirstUserAuthentication`, **deliberately weaker than the
+    queue's** `.completeFileProtectionUnlessOpen`. A geofence exit fires while the phone is locked
+    in a pocket, which is the whole point of the feature; under complete protection the write would
+    fail on exactly that wake and the region would never re-register. Phase 03 already shipped the
+    inverse of this bug — a locked device could not open the queue and the drain reported the pings
+    undeliverable. The trade is stated rather than hidden: this file survives a locked screen, so it
+    is readable after first unlock following boot.
+  - Deleted when every trigger is disabled — if nothing is watching, nothing needs the position.
 - All location work sits in one actor-isolated coordinator; views never touch `CLLocationManager`.
 
 ## Infrastructure (Azure / Aspire resources)
@@ -73,7 +88,7 @@ has to be able to tell. A drained ping reports where the phone **was**, and when
 ## Forbidden
 - Any third-party dependency manager or package.
 - Continuous background GPS (`startUpdatingLocation` + `allowsBackgroundLocationUpdates`).
-- Storing or logging the sender key, the webhook URL, or raw coordinates — **except** the offline queue file described above, which is the one sanctioned store (D-12). Logs, analytics, `UserDefaults`, and the in-memory history remain off limits: the history list is session-only for exactly this reason.
+- Storing or logging the sender key, the webhook URL, or raw coordinates — **except** the two sanctioned stores described above: the offline queue file (D-12) and the single last-ping coordinate (D-16). Logs, analytics, `UserDefaults`, and the in-memory history remain off limits: the history list is session-only for exactly this reason.
 - Committing `DEVELOPMENT_TEAM`, a bundle id, or a provisioning profile **into source or build
   configuration**. Scoped to `src/`, `project.yml`, `scripts/` and anything that ships — NOT to
   `.planning/` prose (D-14). A bundle id is not a secret and is public in any shipped build; the
