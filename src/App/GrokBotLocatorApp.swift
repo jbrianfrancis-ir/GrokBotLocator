@@ -29,6 +29,23 @@ import SwiftUI
 /// to phase 02's behaviour -- `UnqueuedPingSink` and no coordinator -- rather than claiming a
 /// queue that does not exist: `PingSender`'s existing downgrade already turns a refused
 /// enqueue into an honest `.permanentFailure`, never a false "Queued".
+///
+/// Phase 04 (REQ-05..10, SC-04) wires the automatic-trigger graph in, still as locals built here
+/// and nowhere else: `LocationDelegateProxy` (significant-change/visits), `CLMonitorGeofence`
+/// (the geofence region), `UserDefaultsTriggerSettingsStore` (the three switches and the
+/// interval) and `AutomaticPinger`, all handed to one `TriggerCoordinator` -- the single
+/// actor-isolated owner ARCHITECTURE requires for all location work. Two things are shared
+/// rather than duplicated, both for the same reason as the transport instance above: the SAME
+/// `PingRateLimiter` this file already builds for the manual path also reaches `AutomaticPinger`,
+/// which is what makes SC-04's "4 pings a minute, manual and automatic together" true by
+/// construction; and the SAME `CoreLocationFixProvider` (`fixes`) that serves a manual ping also
+/// serves the geofence-exit trigger's one-shot fix, rather than a second provider. The trigger
+/// coordinator is handed to `SettingsModel` as its `TriggerControlling` so the Settings toggles
+/// actually reach it. `MapKitTriggerLabelProvider` -- the real reverse-geocoding label provider
+/// (D-15) -- is what ships here; `EmptyTriggerLabelProvider` remains in the codebase as the
+/// fallback and the test double, simply not what this file constructs. This file never imports
+/// the MapKit framework: naming the provider type is permitted, importing the framework itself
+/// is confined to that provider's own file (ARCHITECTURE Forbidden).
 @main
 struct GrokBotLocatorApp: App {
     @State private var pingModel: PingModel
@@ -38,6 +55,11 @@ struct GrokBotLocatorApp: App {
     /// return, connectivity edge, background refresh); phase 04's location-triggered wake is
     /// not one of them.
     @State private var coordinator: QueueDrainCoordinator?
+    /// The one actor-isolated owner of every automatic trigger (REQ-06/07/08). Built
+    /// unconditionally, whether or not `coordinator` above exists -- an unavailable Application
+    /// Support disables the queue and the drain closure becomes a no-op, but the triggers still
+    /// arm and still ping, matching phase 03's documented fallback shape.
+    @State private var triggerCoordinator: TriggerCoordinator?
 
     @Environment(\.scenePhase) private var scenePhase
 
@@ -67,7 +89,6 @@ struct GrokBotLocatorApp: App {
             wrappedValue: PingModel(
                 sender: sender, labelStore: UserDefaultsPingLabelStore(), fixes: fixes,
                 rateLimiter: rateLimiter, now: { Date() }))
-        _settingsModel = State(wrappedValue: SettingsModel(store: store, sender: sender))
 
         if let queue {
             _coordinator = State(
@@ -80,6 +101,36 @@ struct GrokBotLocatorApp: App {
                     connectivity: NWPathMonitorConnectivity(),
                     now: { Date() }))
         }
+
+        // Phase 04's automatic-trigger graph -- see the header above. `proxy` and `geofence` are
+        // the two CoreLocation-backed collaborators `TriggerCoordinator` drives; `triggerStore`
+        // persists the three switches and the interval; `labels` is the shipping (D-15)
+        // reverse-geocoding provider, at its default 3-second budget.
+        let proxy = LocationDelegateProxy()
+        let geofence = CLMonitorGeofence()
+        let triggerStore = UserDefaultsTriggerSettingsStore()
+        let labels = MapKitTriggerLabelProvider()
+        // Same `sender` the manual button uses (credentials, transport, classifier and durable
+        // sink all shared) and the SAME `rateLimiter` above -- not a second one -- so SC-04's
+        // ceiling counts manual and automatic pings together.
+        let pinger = AutomaticPinger(
+            sender: sender, labels: labels, rateLimiter: rateLimiter,
+            model: _pingModel.wrappedValue, now: { Date() })
+        // `queueCoordinator` is nil exactly when `coordinator` above is -- Application Support
+        // unavailable -- and the closure then does nothing, which is the harmless no-op phase
+        // 03's fallback requires: triggers still arm and still ping with no queue to drain.
+        let queueCoordinator = _coordinator.wrappedValue
+        let drain: @Sendable () async -> Void = { await queueCoordinator?.drainForeground() }
+        _triggerCoordinator = State(
+            wrappedValue: TriggerCoordinator(
+                source: proxy, geofence: geofence, pinger: pinger,
+                // The SAME `CoreLocationFixProvider` the manual path already uses -- the
+                // geofence-exit path needs a one-shot fix and there is no reason for a second.
+                fixes: fixes, settingsStore: triggerStore, drain: drain))
+
+        _settingsModel = State(
+            wrappedValue: SettingsModel(
+                store: store, sender: sender, triggers: _triggerCoordinator.wrappedValue))
     }
 
     var body: some Scene {
