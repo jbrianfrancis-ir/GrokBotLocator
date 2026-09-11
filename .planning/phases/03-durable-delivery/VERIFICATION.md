@@ -1,12 +1,13 @@
 ---
 phase: 03-durable-delivery
-status: human_needed
+status: pass
 smoke: pass
 gaps: []
-unverified:
-  - "03-02: non-401/403 4xx (404, 410, 422, 429 …) are PERMANENT and never retried"
-  - "03-02: a retryable ping gives up 7 days after its first attempt"
-  - "03-06: a ping that fails permanently while queued is retained on disk until shown"
+unverified: []
+settled_by_D14:
+  - "4xx: 408/429 retryable, rest permanent — was an abstention, now stated in REQUIREMENTS.md"
+  - "give-up horizon: 7 days from first attempt — confirmed and stated"
+  - "retention of a permanently-failed queued ping until shown — confirmed and stated"
 ---
 
 ## Smoke
@@ -36,14 +37,52 @@ Wire-format condition met: `encodesExactlyTheFiveKeysWithTheRightTypes()` +
 | 03-06 a permanently-failed queued ping is retained until shown | HUMAN (non-inferable) | SC-02 requires every ping be delivered or shown failed, but not that a failure recorded while the app is closed must survive. `aPermanentRejectionIsMarkedButKeptWhenNotSurfacing()` and `aBackgroundDrainKeepsAPermanentlyFailedEntryOnFile()` pin the chosen behaviour, not the rule. |
 
 ## Human checks
-- [ ] REQ-05 on device: airplane mode on → tap → row reads **Queued** with a waiting sentence; app open, airplane off → within a minute, with no taps, that same row flips to **Sent** (one row, same position).
-- [ ] REQ-05 relaunch: airplane on → tap → force-quit → airplane off → relaunch; the queued ping is still listed and sends. Receiver gets `{"lat","lng","accuracy_m","label","at"}` in that key order with `at` = the FIX time from that step, not the arrival time (REQ-02 / D-12).
-- [ ] Forced permanent rejection while queued (webhook that 401s): the row reads **Failed** with a reason, is seen, and is then removed — it should not survive a further relaunch.
-- [ ] REQ-04 unchanged: one success and one forced failure give two rows with distinct outcomes.
-- [ ] Non-401/403 4xx policy — decide 429/404/422 retryable or permanent, then write the held-out test (or state the rule in REQUIREMENTS so it becomes inferable).
-- [ ] Give-up horizon — decide whether 7 days is the rule, then pin it with a held-out test or a REQUIREMENTS line.
-- [ ] Retention of a permanently-failed queued ping until shown — decide the rule, then pin it the same way.
-- [ ] Policy call: `com.bfrancis.grokbotlocator` appears in tracked planning prose (`.planning/DECISIONS.md`, `01-*/VERIFICATION.md`, and now `03-11-SUMMARY.md:15`), while ARCHITECTURE's Forbidden list says "committing … a bundle id". No source or build file carries it. Decide whether planning prose is in scope for that rule, and redact if so.
+- [x] **REQ-05 queue+drain — PASS (2026-09-11, simulator, partial on the trigger).** Receiver stopped
+  → tap → row read **Queued**. `PingQueue.json` held the entry with `attemptsMade: 1`,
+  `nextAttemptAt - firstAttemptAt` = exactly 30.0s (03-02's `min(30·2⁰, 3600)`), and
+  `xattr` showed `com.apple.metadata:com_apple_backup_excludeItem` — so the ping was genuinely on
+  disk before the app said Queued (03-08's write-before-promise) and D-12's backup exclusion holds.
+  Receiver restarted → row flipped to **Sent** with no taps → queue file became `[]` (D-12: entry
+  deleted on delivery).
+  **NOT TESTED: the connectivity-edge trigger.** The drain fired from `drainForeground()` via
+  background→foreground, which is a different one of REQ-05's four opportunities. A real
+  `NWPathMonitor` unsatisfied→satisfied transition still needs a device or a Wi-Fi toggle.
+  Also not airplane mode: the endpoint was made unreachable by stopping the receiver, which yields
+  connection-refused rather than a dead interface. Both classify retryable; they are not identical.
+- [x] **REQ-05 relaunch — PASS (2026-09-11, simulator).** Receiver down → tap → Queued → process
+  killed with `simctl terminate` (app binary confirmed gone) → queue file byte-identical across the
+  kill → receiver restarted → relaunch → the ping delivered and the queue emptied. The payload
+  arrived with wire keys `['lat','lng','accuracy_m','label','at']` in ARCHITECTURE's pinned order
+  and `at` = `14:06:49Z` against an arrival of `14:07:45Z` — `at` carries the FIX time across a
+  process death, 56s later (REQ-02 / D-12). An earlier attempt delivered nothing because the
+  relaunch fell inside the 30s backoff window, which is the retry policy working, not a failure.
+  **Found and fixed here: duplicate delivery (64f7b7d).** The first run of this check produced TWO
+  POSTs for ONE queued ping, same `at`, same second. `PingQueueDrain` is an actor — reentrant
+  across `await` — and both drain paths fire on launch, so the second drain loaded the same
+  not-yet-replaced queue while the first was parked on the network. No test caught it because every
+  test drove one drain at a time against a transport that never suspends. Re-verified after the
+  fix on the same sequence: deliveries 2 → 1.
+- [x] **Forced permanent rejection while queued — PASS (2026-09-11, simulator).** Ping queued
+  against a dead receiver, receiver brought back answering 401, backoff waited out, drain run.
+  Exactly ONE POST (401 is permanent and was never retried), the row read **Failed** with the
+  verbatim `Rejected by the webhook (HTTP 401). Check the sender key and header name in Settings.`
+  over label/coords/fix-time, and the queue file went to `[]`. Relaunch: "No pings yet", zero
+  further POSTs — it did not survive.
+  **Caveat on what this does NOT show.** A foreground drain runs `surfacingFailures: true`, so the
+  failure was reported and deleted in the same pass; the "retained on disk carrying its reason
+  until shown" state only exists on the BACKGROUND path (`surfacingFailures: false`), which was not
+  exercised. D-14 has since settled the RULE (keep until shown, then delete), but the background
+  path that produces the retained state remains unexercised on a device — a gap in evidence, not
+  in the spec.
+- [x] **REQ-04 unchanged — PASS (2026-09-11, simulator).** Receiver on 200 → tap → green check
+  **Sent**; receiver flipped to 401 → tap → red triangle **Failed** with its reason. Two rows,
+  newest first, distinct by symbol AND word AND colour (DESIGN.md: never colour alone). The wire
+  confirms one POST per tap — `200` at 14:12:34Z, `401` at 14:12:51Z — so no duplicate survived
+  the drain fix. Queue stayed `[]` throughout: a 401 is permanent and is never queued.
+- [x] **Non-401/403 4xx policy — SETTLED (D-14).** 408 and 429 are now retryable; the rest of the 4xx range stays permanent. Behaviour CHANGED: `PingClassifier` gained a `case 408, 429` arm ahead of `400...499`, pinned by `theTwoTemporary4xxCodesAreRetryable`. Stated in REQUIREMENTS.md, so it is no longer non-inferable.
+- [x] **Give-up horizon — SETTLED (D-14).** 7 days from the first attempt, measured in elapsed time not attempt count. Confirms what shipped; now a stated rule in REQUIREMENTS.md rather than a chosen default, so `givesUpOnlyAfterSevenDaysFromTheFirstAttempt` pins a rule instead of recording a choice.
+- [x] **Retention until shown — SETTLED (D-14).** A background drain marks the failure and leaves it on disk; the next foreground drain reports and removes it. Confirms what shipped. This is what makes SC-02's "shown permanently failed with a reason" true for a failure found while nobody was looking. NOTE: the background path itself was still not exercised on a device — the foreground drain reports and deletes in one pass.
+- [x] **Bundle id in planning prose — SETTLED (D-14).** Out of scope for ARCHITECTURE's Forbidden list, which is narrowed to source and build configuration. A bundle id is not a secret and is public in any shipped build; the rule exists to keep signing identity out of the build, and that half is unchanged and still guarded (03-11 proved `project.yml` carries no literal).
 
 ## Learnings
 - The composition root (`GrokBotLocatorApp.init`) is verified only by code trace — no test constructs it, and no smoke guard asserts `DurablePingSink` is the shipped sink. A future edit swapping it back to `UnqueuedPingSink` would leave the whole suite green.
