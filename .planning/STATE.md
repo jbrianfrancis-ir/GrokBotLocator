@@ -1,9 +1,9 @@
 <!-- .planning/STATE.md — cap 1.5KB. Rewrite sections in place; never append. -->
 # State
 ## Position
-Phase: 4 of 4 (Automatic triggers) | Plans: 4/13 | Status: executing
-Last: 2026-09-11 — wave 1 done (04-01/02/03/05), fan-in smoke GREEN 195 tests/21 suites.
-Next: wave 2 — 04-04, 04-06, 04-07, 04-08, 04-09 (serialized)
+Phase: 4 of 4 (Automatic triggers) | Plans: 9/13 | Status: executing
+Last: 2026-09-11 — waves 1-2 done (9 plans), fan-in smoke GREEN 233 tests/26 suites.
+Next: wave 3 04-10, then 04-11, 04-12, 04-13
 ## Gate
 none — D-15 (add MapKit; narrow to one file) answered 2026-09-11.
 ## Run
@@ -16,7 +16,7 @@ Signature: rule4:phase04:plans0/13:verifnone
 ## Blockers
 - none
 ## Session
-Stopped: mid phase-04 execution, wave 1 of 6 complete. Executors run SERIALIZED, not
+Stopped: mid phase-04 execution, waves 1-2 of 6 complete. Executors run SERIALIZED, not
   parallel — LEARNINGS: a shared git index crosses commit attribution regardless of disjoint files.
 Resume: 3 rulings still open (D-15 answered only the geocoder) — ARCHITECTURE silent on
   UIBackgroundModes:location; and
