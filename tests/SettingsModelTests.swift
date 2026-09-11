@@ -87,6 +87,10 @@ struct SettingsModelTests {
             return attempt
         }
 
+        func send(label: String, using fix: LocationFix) async -> PingAttempt {
+            await send(label: label)
+        }
+
         /// Returns once `send(label:)` has been entered, whether that already happened or not.
         func waitUntilEntered() async {
             guard !didEnter else { return }

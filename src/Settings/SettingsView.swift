@@ -222,6 +222,7 @@ private struct StubPingSending: PingSending {
     let attempt: PingAttempt
 
     func send(label: String) async -> PingAttempt { attempt }
+    func send(label: String, using fix: LocationFix) async -> PingAttempt { attempt }
 }
 
 @MainActor

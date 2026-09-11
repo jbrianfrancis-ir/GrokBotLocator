@@ -246,6 +246,10 @@ private final class PreviewPingSending: PingSending, @unchecked Sendable {
         index += 1
         return attempt
     }
+
+    func send(label: String, using fix: LocationFix) async -> PingAttempt {
+        await send(label: label)
+    }
 }
 
 /// In memory only -- never `UserDefaults`, so a preview cannot write into the real app's label.
