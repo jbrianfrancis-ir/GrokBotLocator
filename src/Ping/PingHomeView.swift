@@ -283,7 +283,10 @@ private struct PreviewPingHome: View {
                 sender: PreviewPingSending(
                     attempts: [previewSentAttempt, previewFailedAttempt]),
                 labelStore: PreviewPingLabelStore(stored: "Gallipoli"),
-                fixes: PreviewFixProvider()))
+                fixes: PreviewFixProvider(),
+                // A real limiter, not a fake: nothing in this preview taps fast enough to hit
+                // the gate, so the production default interval is fine here.
+                rateLimiter: PingRateLimiter(), now: { Date() }))
     }
 
     var body: some View {
