@@ -203,7 +203,8 @@ struct QueueDrainCoordinatorTests {
             credentials.stored = hasCredentials ? QueueDrainCoordinatorTests.fixtureCredentials : nil
             model = PingModel(
                 sender: NeverCalledSender(), labelStore: FakeLabelStore(),
-                fixes: FakeLocationFixProvider())
+                fixes: FakeLocationFixProvider(),
+                rateLimiter: AlwaysAllowingRateLimiter(), now: now)
             let drain = PingQueueDrain(
                 store: store, credentials: credentials, transport: transport,
                 policy: .standard, now: now)
@@ -220,6 +221,14 @@ struct QueueDrainCoordinatorTests {
             Issue.record("PingSending.send should never be called by QueueDrainCoordinator")
             return PingAttempt(fix: nil, disposition: .sent, statusCode: nil, responseBody: nil)
         }
+    }
+
+    /// `ping()` is never called in this suite either (see `NeverCalledSender` above), so the
+    /// gate's actual behaviour is irrelevant here -- this only satisfies `PingModel`'s
+    /// initializer, which now names the gate explicitly rather than defaulting it.
+    private struct AlwaysAllowingRateLimiter: PingRateLimiting {
+        func claim(at now: Date) async -> RateLimitDecision { .allowed }
+        func setMinimumInterval(_ seconds: TimeInterval) async {}
     }
 
     // MARK: Tests

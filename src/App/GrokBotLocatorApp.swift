@@ -59,9 +59,14 @@ struct GrokBotLocatorApp: App {
             credentials: store, fixes: fixes,
             transport: transport,
             pending: pending)
+        // The one shared gate (REQ-09/SC-04): the manual path below and 04-10's AutomaticPinger
+        // claim from the SAME instance, which is what makes "4 pings a minute, manual and
+        // automatic together" true by construction rather than convention.
+        let rateLimiter = PingRateLimiter()
         _pingModel = State(
             wrappedValue: PingModel(
-                sender: sender, labelStore: UserDefaultsPingLabelStore(), fixes: fixes))
+                sender: sender, labelStore: UserDefaultsPingLabelStore(), fixes: fixes,
+                rateLimiter: rateLimiter, now: { Date() }))
         _settingsModel = State(wrappedValue: SettingsModel(store: store, sender: sender))
 
         if let queue {
