@@ -164,16 +164,18 @@ if [[ -n "$USERDEFAULTS_HITS" ]]; then
     exit 1
 fi
 
-echo "==> queue-store guard: FileManager/file-writing APIs confined to PingQueueStore.swift, import Network confined to Connectivity.swift"
+echo "==> queue-store guard: FileManager/file-writing APIs confined to PingQueueStore.swift and LastPingStore.swift, import Network confined to Connectivity.swift"
 QUEUE_STORE="src/Queue/PingQueueStore.swift"
+LAST_PING_STORE="src/Triggers/LastPingStore.swift"
 CONNECTIVITY="src/Queue/Connectivity.swift"
 
 # D-12 sanctioned PingQueueStore.swift as the ONE coordinate store, on exactly four conditions
-# (protected, backup-excluded, deleted on delivery, never copied elsewhere). A second writer
-# using these APIs is a decision, not a detail -- same shape as the UserDefaults guard above,
-# including dropping comment-only lines first (a whole-file presence grep counts doc-comment
-# text, .planning/LEARNINGS.md) rather than a whole-line `grep -v`, which a real call could hide
-# beside on the same line.
+# (protected, backup-excluded, deleted on delivery, never copied elsewhere). D-16 (2026-09-11)
+# widened that to exactly TWO sanctioned stores -- LastPingStore.swift, on its own four
+# conditions -- and no further. A THIRD writer using these APIs is a decision, not a detail --
+# same shape as the UserDefaults guard above, including dropping comment-only lines first (a
+# whole-file presence grep counts doc-comment text, .planning/LEARNINGS.md) rather than a
+# whole-line `grep -v`, which a real call could hide beside on the same line.
 # Widened after PR review probed it by ESCAPE (adding a second coordinate writer) rather than by
 # absence (deleting a guarded one). Four probes walked straight past the old pattern: `write(toFile:`
 # (only `.write(to:` was named), `FileHandle(forWritingAtPath:)` (never named at all), a `data.write(`
@@ -183,14 +185,18 @@ CONNECTIVITY="src/Queue/Connectivity.swift"
 # The multiline case is caught by SHAPE rather than by content -- `\.write\([[:space:]]*$` matches a
 # call left open at end of line -- because grep cannot see across lines at all. A writer that splits
 # its call some other way would still escape; this guard is honest about being a net, not a proof.
+# Each exemption is anchored on grep's own `path:lineno:` prefix, never a filter that drops any
+# line merely MENTIONING one of the two filenames -- the same reason the Always guard below uses
+# `^path:` rather than a whole-line `grep -v`.
 QUEUE_STORE_HITS=$(grep -rnE \
-    'FileManager|\.write\(to:|\.write\(toFile:|\.write\([[:space:]]*$|FileHandle|URLResourceValues|isExcludedFromBackup|completeFileProtectionUnlessOpen' \
+    'FileManager|\.write\(to:|\.write\(toFile:|\.write\([[:space:]]*$|FileHandle|URLResourceValues|isExcludedFromBackup|completeFileProtectionUnlessOpen|completeFileProtectionUntilFirstUserAuthentication' \
     src --include='*.swift' 2>/dev/null \
     | grep -v "^${QUEUE_STORE}:" \
+    | grep -v "^${LAST_PING_STORE}:" \
     | grep -vE '^[^:]*:[0-9]+: *(///|//|\*)' || true)
 
 if [[ -n "$QUEUE_STORE_HITS" ]]; then
-    echo "queue-store guard failed -- the queue file is the ONE sanctioned coordinate store (D-12); a second writer is a decision, not a detail:" >&2
+    echo "queue-store guard failed -- the queue file and the last-ping file are the TWO sanctioned coordinate stores (D-12, D-16); a third writer is a decision, not a detail:" >&2
     echo "$QUEUE_STORE_HITS" >&2
     exit 1
 fi
@@ -219,6 +225,25 @@ fi
 
 if ! echo "$QUEUE_STORE_NONCOMMENT_HITS" | grep -q 'isExcludedFromBackup'; then
     echo "queue-protection guard failed -- ${QUEUE_STORE} does not apply isExcludedFromBackup on a non-comment line (D-12 sanctioned the file only as backup-excluded; losing this voids the exception):" >&2
+    exit 1
+fi
+
+echo "==> last-ping-protection guard: ${LAST_PING_STORE} applies both completeFileProtectionUntilFirstUserAuthentication and isExcludedFromBackup on non-comment lines"
+
+# Same discipline as the queue-protection guard above, and for the same reason: a whole-file
+# presence grep counts comment text (.planning/LEARNINGS.md: a phase-01 guard read 5 where the
+# answer was 1) -- a doc comment naming both D-16 conditions would satisfy a presence-only check
+# without either ever reaching `save`. Strip comment lines from THIS file's own hits first.
+LAST_PING_STORE_NONCOMMENT_HITS=$(grep -nE 'completeFileProtectionUntilFirstUserAuthentication|isExcludedFromBackup' "$LAST_PING_STORE" 2>/dev/null \
+    | grep -vE '^[0-9]+: *(///|//|\*)' || true)
+
+if ! echo "$LAST_PING_STORE_NONCOMMENT_HITS" | grep -q 'completeFileProtectionUntilFirstUserAuthentication'; then
+    echo "last-ping-protection guard failed -- ${LAST_PING_STORE} does not apply .completeFileProtectionUntilFirstUserAuthentication on a non-comment line (D-16 condition 3 voided):" >&2
+    exit 1
+fi
+
+if ! echo "$LAST_PING_STORE_NONCOMMENT_HITS" | grep -q 'isExcludedFromBackup'; then
+    echo "last-ping-protection guard failed -- ${LAST_PING_STORE} does not apply isExcludedFromBackup on a non-comment line (D-16 condition 2 voided):" >&2
     exit 1
 fi
 
