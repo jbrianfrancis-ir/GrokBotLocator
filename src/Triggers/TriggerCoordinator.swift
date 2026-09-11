@@ -233,3 +233,21 @@ actor TriggerCoordinator {
     }
 }
 
+// MARK: - On-device verification (this plan's acceptance clauses the simulator cannot give)
+//
+// The unit suite (TriggerCoordinatorTests.swift) proves the drain-first ordering, the 500 m
+// gate, arrival-only pinging, geofence re-registration, the rate-limited non-advance, and the
+// concurrent-wake reentrancy case -- all with no device. It cannot prove the OS actually
+// delivers these callbacks to a backgrounded or terminated app, or what that costs in battery.
+// Reproduction steps for whoever runs the device check:
+// (a) REQ-06 -- Xcode Debug > Simulate Location with a GPX route crossing 500 m, app
+//     backgrounded, expect one ping; a 300 m route, expect none.
+// (b) REQ-07 -- a simulated visit event with the app backgrounded, expect exactly one ping shown
+//     as an Arrival.
+// (c) REQ-05's fourth drain opportunity -- airplane mode, tap once so a ping queues, leave
+//     airplane mode on, background the app, then drive a location wake and confirm the queued
+//     ping drains WITHOUT any announcement (04-05).
+// (d) SC-03 -- a full day with all three triggers on, read Settings > Battery for
+//     GrokBotLocator's share and confirm it is under 5%. RESEARCH Q6 found significant-change to
+//     be the least battery-friendly of the three, so it is the one to watch if this fails.
+
