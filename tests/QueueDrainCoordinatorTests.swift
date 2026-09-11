@@ -377,4 +377,69 @@ struct QueueDrainCoordinatorTests {
 
         #expect(fakes.store.currentEntries.isEmpty)
     }
+
+    @Test
+    func aDrainWithNobodyPresentDoesNotAnnounce() async throws {
+        // The location-wake shape: a fresh process that never showed a scene, so `start()` --
+        // and its `userIsPresent = true` -- never ran.
+        let entry = Self.makeQueuedPing()
+        let fakes = Fakes(
+            entries: [entry],
+            transportScript: [.success(PingResponse(statusCode: 200, body: ""))])
+
+        await fakes.coordinator.drainForeground()
+
+        #expect(fakes.model.log.entries.first?.outcome == .sent)
+        #expect(fakes.model.lastAttempt == nil)
+    }
+
+    @Test
+    func aDrainAfterSetUserPresentAnnounces() async throws {
+        let entry = Self.makeQueuedPing()
+        let fakes = Fakes(
+            entries: [entry],
+            transportScript: [.success(PingResponse(statusCode: 200, body: ""))])
+
+        fakes.coordinator.setUserPresent(true)
+        await fakes.coordinator.drainForeground()
+
+        #expect(fakes.model.lastAttempt?.outcome == .sent)
+    }
+
+    @Test
+    func presenceCanBeWithdrawn() async throws {
+        // Proves the flag is read per drain, not latched at construction or at the first drain.
+        let first = Self.makeQueuedPing()
+        let fakes = Fakes(
+            entries: [first],
+            transportScript: [
+                .success(PingResponse(statusCode: 200, body: "")),
+                .success(PingResponse(statusCode: 200, body: "")),
+            ])
+
+        fakes.coordinator.setUserPresent(true)
+        await fakes.coordinator.drainForeground()
+        #expect(fakes.model.lastAttempt?.outcome == .sent)
+        let sequenceBeforeSecondDrain = fakes.model.lastAttempt?.sequence
+
+        fakes.coordinator.setUserPresent(false)
+        let second = Self.makeQueuedPing()
+        try await fakes.store.append(second)
+        await fakes.coordinator.drainForeground()
+
+        #expect(fakes.model.lastAttempt?.sequence == sequenceBeforeSecondDrain)
+    }
+
+    @Test
+    func startMarksTheUserPresent() async throws {
+        // Restates the invariant `launchHydratesAPermanentFailureSilentlyBeforeItIsSurfaced`
+        // depends on, so a future edit that drops `userIsPresent = true` from `start()` fails
+        // with a name that says what broke.
+        let entry = Self.makeQueuedPing(permanentFailure: "The webhook rejected the sender key.")
+        let fakes = Fakes(entries: [entry])
+
+        await fakes.coordinator.start()
+
+        #expect(fakes.model.lastAttempt?.outcome == .failed)
+    }
 }
