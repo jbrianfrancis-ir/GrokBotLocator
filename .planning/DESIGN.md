@@ -17,9 +17,9 @@ Driving requirement: **legible and operable without reading glasses**, one-hande
 - **Radii**: 16pt on cards and buttons; 28pt on the primary action.
 
 ## Components (by group)
-- Primary action: `PingButton` — full-width, bottom third of the screen for one-handed reach, 28pt semibold label, distinct pressed and in-flight states.
+- Primary action: `PingButton` — full-width, bottom third of the screen for one-handed reach, 24pt semibold label (D-13), distinct pressed and in-flight states.
 - Status: `PingOutcomeRow` — timestamp, coordinates, label, outcome. Outcome is **always** symbol + word + color, never color alone.
-- Input: `CredentialField` — 20pt text, visible field labels (never placeholder-only), secure entry with **no reveal control**; a stored sender key is never re-displayed and shows a "key saved" indicator instead (D-10).
+- Input: `CredentialField` — 17pt body text (D-13), visible field labels (never placeholder-only), secure entry with **no reveal control**; a stored sender key is never re-displayed and shows a "key saved" indicator instead (D-10).
 - Chrome: navigation and toolbars only.
 
 ## Rules

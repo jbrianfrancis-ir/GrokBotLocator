@@ -14,7 +14,7 @@
 - **Credentials live only in the Keychain** — never in source, `project.yml`, `Info.plist`, `UserDefaults`, or a log line.
 - **No ping is silently dropped.** Every send succeeds, is durably queued, or is recorded as failed with a user-visible reason.
 - **Fully usable at "When In Use".** Manual pings work without `Always`; `Always` only unlocks automatic triggers.
-- **`DESIGN.md` is binding.** No type below 17pt, no tap target under 60pt, no state conveyed by colour alone, Dynamic Type to AX5 — the app must be usable without reading glasses.
+- **`DESIGN.md` is binding.** No type below 15pt (was 17pt until D-13), no tap target under 60pt, no state conveyed by colour alone, Dynamic Type to AX5 — the app must be usable without reading glasses.
 - **Transport and storage are protocol-backed and injected** — delivery is testable without a device or live webhook.
 
 ## Smoke

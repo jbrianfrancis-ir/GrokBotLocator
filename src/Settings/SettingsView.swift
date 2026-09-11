@@ -13,7 +13,8 @@ import SwiftUI
 /// badge grows upward and the button cannot move. `connectionReportView` stays in the scroll
 /// deliberately: it renders a whole 401 body, and PingHomeView's actionBar comment gives the
 /// reason -- a wrapped sentence in the bottom bar eats the budget the 88pt action floor needs
-/// at AX5. Only the short status badge is allowed to share the bar.
+/// at AX5. Only the one-word `savedBadge` shares the bar; `errorView` was split out of it at PR
+/// review, because a validation sentence at AX5 runs the bar past the height of a small phone.
 ///
 /// No glass anywhere here -- every fill is an opaque `DSPalette` pair, matching CredentialField
 /// and PingButton; navigation chrome is the system's own and needs no code from this file.
@@ -54,6 +55,8 @@ struct SettingsView: View {
                             "The header the sender key rides in. Defaults to \(WebhookCredentials.defaultHeaderName)."
                     )
                 }
+
+                errorView
 
                 VStack(alignment: .leading, spacing: DSMetrics.groupGap) {
                         // The 60pt frame and the content shape live INSIDE the label, as in
@@ -101,12 +104,12 @@ struct SettingsView: View {
     /// The primary action, pinned to the bottom so the status badge grows upward instead of
     /// displacing it. Mirrors `PingHomeView.actionBar` -- same opaque `DSPalette` fill, same
     /// screen margin, and never a material: DESIGN.md bars Liquid Glass from behind the primary
-    /// action. `statusView` is the only thing allowed to share the bar, and only because a save
-    /// outcome is a word or a short validation sentence; the webhook's own answer, which can run
-    /// to a whole response body, stays in the scroll as `connectionReportView`.
+    /// action. `savedBadge` is the ONLY thing allowed to share the bar, and only because it is one
+    /// word. Everything that can render a sentence stays in the scroll: `errorView` (a validation
+    /// message naming a field) and `connectionReportView` (a whole 401 body).
     private var saveBar: some View {
         VStack(alignment: .leading, spacing: DSMetrics.spacingBase) {
-            statusView
+            savedBadge
 
             PingButton(title: "Save settings") {
                 model.save()
@@ -117,17 +120,30 @@ struct SettingsView: View {
         .background(DSPalette.body.background(for: colorScheme))
     }
 
-    /// Symbol + word/sentence + colour, on its own opaque fill -- never colour alone, never a
-    /// toast or alert. `.idle` renders nothing: the field group is the whole screen until a
-    /// save or clear happens.
+    /// The bar's half: one word, never a sentence.
+    ///
+    /// Split from the error half at PR review. `statusView` used to render BOTH here, and an
+    /// error is a full validation sentence at `.dsFont(.body)` -- e.g. "Header name cannot be
+    /// empty — enter the header the key rides in, e.g. Authorization." At AX5 that wraps to
+    /// roughly nine lines and the bar alone runs past the height of an iPhone SE, taking the
+    /// 88pt action floor with it. `PingHomeView.actionBar`'s badge is `.secondary` and word-only
+    /// for exactly this reason; this file's own rule ("only the short status badge is allowed to
+    /// share the bar") was written and then broken in the same commit.
     @ViewBuilder
-    private var statusView: some View {
-        switch model.status {
-        case .idle:
-            EmptyView()
-        case .saved:
+    private var savedBadge: some View {
+        if case .saved = model.status {
             statusBadge(symbolName: "checkmark.circle.fill", text: "Saved", pair: DSPalette.success)
-        case .error(let message):
+        }
+    }
+
+    /// The scroll's half: the sentence, next to the fields it names.
+    ///
+    /// Every error `SettingsModel` produces names a specific field ("Webhook URL must start with
+    /// https://…", "Sender key is missing…"), so the scroll is where the user needs it anyway --
+    /// beside the field they have to fix, not pinned 600pt below it next to a button.
+    @ViewBuilder
+    private var errorView: some View {
+        if case .error(let message) = model.status {
             statusBadge(symbolName: "exclamationmark.triangle.fill", text: message, pair: DSPalette.failure)
         }
     }
