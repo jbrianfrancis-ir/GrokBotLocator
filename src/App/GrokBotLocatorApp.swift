@@ -81,10 +81,16 @@ struct GrokBotLocatorApp: App {
             credentials: store, fixes: fixes,
             transport: transport,
             pending: pending)
+        // Built here, ahead of the gate below, so the interval already on disk is in force from
+        // the very first claim -- `TriggerCoordinator.start()` is a foreground-only touchpoint
+        // (see that type's header), so seeding at construction is what covers the manual button
+        // and any launch that has not run `start()` yet.
+        let triggerStore = UserDefaultsTriggerSettingsStore()
         // The one shared gate (REQ-09/SC-04): the manual path below and 04-10's AutomaticPinger
         // claim from the SAME instance, which is what makes "4 pings a minute, manual and
-        // automatic together" true by construction rather than convention.
-        let rateLimiter = PingRateLimiter()
+        // automatic together" true by construction rather than convention. Seeded from disk --
+        // the limiter's own init already clamps, so no floor check belongs here.
+        let rateLimiter = PingRateLimiter(minimumInterval: triggerStore.load().minimumIntervalSeconds)
         _pingModel = State(
             wrappedValue: PingModel(
                 sender: sender, labelStore: UserDefaultsPingLabelStore(), fixes: fixes,
@@ -104,11 +110,11 @@ struct GrokBotLocatorApp: App {
 
         // Phase 04's automatic-trigger graph -- see the header above. `proxy` and `geofence` are
         // the two CoreLocation-backed collaborators `TriggerCoordinator` drives; `triggerStore`
-        // persists the three switches and the interval; `labels` is the shipping (D-15)
-        // reverse-geocoding provider, at its default 3-second budget.
+        // (built above, alongside the gate it seeds) persists the three switches and the
+        // interval; `labels` is the shipping (D-15) reverse-geocoding provider, at its default
+        // 3-second budget.
         let proxy = LocationDelegateProxy()
         let geofence = CLMonitorGeofence()
-        let triggerStore = UserDefaultsTriggerSettingsStore()
         let labels = MapKitTriggerLabelProvider()
         // Same `sender` the manual button uses (credentials, transport, classifier and durable
         // sink all shared) and the SAME `rateLimiter` above -- not a second one -- so SC-04's
