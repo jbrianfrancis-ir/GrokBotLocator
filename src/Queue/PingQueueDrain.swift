@@ -187,7 +187,18 @@ actor PingQueueDrain {
             // Applied after EVERY entry, not once at the end, so a process killed mid-drain cannot
             // re-send a ping it already delivered. The delta is cumulative and therefore
             // idempotent: re-applying a removal or an update is a no-op.
-            try? await store.apply(removing: removed, updating: changed)
+            //
+            // A FAILED write stops the walk. This was `try?` and the failure was hypothetical
+            // until `.unavailable` existed: now the device locking inside a 25s background budget
+            // makes the write fail on an ordinary path, and swallowing it meant the drain kept
+            // delivering pings it could no longer remove -- every one of them re-POSTed on the
+            // next drain, the duplicate delivery of 64f7b7d back by a new route. If the queue
+            // cannot record what was just done, the only safe thing is to stop doing more.
+            do {
+                try await store.apply(removing: removed, updating: changed)
+            } catch {
+                break
+            }
         }
 
         return PingDrainReport(updates: updates, notice: nil)
