@@ -24,6 +24,7 @@ struct PingQueueDrainTests {
         private var entries: [QueuedPing]
         private var replaceCallsStorage: [[QueuedPing]] = []
         var loadErrorToThrow: Error?
+        var entriesNow: [QueuedPing] { lock.withLock { entries } }
 
         init(entries: [QueuedPing] = []) {
             self.entries = entries
@@ -88,6 +89,25 @@ struct PingQueueDrainTests {
         }
     }
 
+    /// A transport that actually suspends, so a second drain can enter the actor while the first
+    /// is parked at its `await`. `FakeTransport` returns immediately and never leaves that window
+    /// open, which is why the reentrancy bug survived its whole suite.
+    private final class SlowTransport: PingTransport, @unchecked Sendable {
+        private let lock = NSLock()
+        private var callCountStorage = 0
+        private let delay: Duration
+
+        init(delay: Duration) { self.delay = delay }
+
+        var callCount: Int { lock.withLock { callCountStorage } }
+
+        func send(_ payload: PingPayload, using credentials: WebhookCredentials) async throws -> PingResponse {
+            lock.withLock { callCountStorage += 1 }
+            try? await Task.sleep(for: delay)
+            return PingResponse(statusCode: 200, body: "")
+        }
+    }
+
     /// Returns a caller-set credential, or throws a caller-set error. `load()` is a synchronous
     /// (non-`async`) requirement, so every call lands on the actor's own turn -- no lock needed,
     /// same as `PingSenderTests`'s `FakeCredentialStore`.
@@ -138,7 +158,7 @@ struct PingQueueDrainTests {
     private static func makeDrain(
         store: FakeQueueStore,
         credentials: FakeCredentialStore,
-        transport: FakeTransport,
+        transport: any PingTransport,
         policy: PingRetryPolicy = .standard,
         now: @escaping @Sendable () -> Date = { fixedNow }
     ) -> PingQueueDrain {
@@ -148,6 +168,39 @@ struct PingQueueDrainTests {
     private static let farFutureDeadline = fixedNow.addingTimeInterval(86_400)
 
     // MARK: Tests
+
+    /// Found on a simulator during phase 03 acceptance, 2026-09-11: ONE queued ping, TWO POSTs at
+    /// the receiver with the same `at` in the same second.
+    ///
+    /// Both drains fire on launch -- `.task { start() }` drains, and `scenePhase` -> `.active`
+    /// drains again -- and `PingQueueDrain` is an `actor`, which serializes entry but is REENTRANT
+    /// across `await`. Drain A loads the queue and suspends on `transport.send`; drain B enters
+    /// during that suspension, loads the same not-yet-replaced queue, and sends the same entry.
+    /// `drain()`'s own comment claimed it "cannot re-send a ping it already delivered" -- true of
+    /// sequential drains, false of reentrant ones. Every existing test in this suite drives one
+    /// drain at a time, which is exactly why none of them caught it.
+    ///
+    /// Not data loss, so SC-02 still holds; it is duplicate delivery, which spends SC-04's "no
+    /// more than 4 pings per minute reach the routine" budget on the same ping twice.
+    @Test
+    func twoConcurrentDrainsDeliverAQueuedPingExactlyOnce() async throws {
+        let entry = Self.makeQueuedPing()
+        let store = FakeQueueStore(entries: [entry])
+        let credentials = FakeCredentialStore()
+        credentials.stored = Self.fixtureCredentials
+        // Suspends inside `send`, holding drain A at the await long enough for drain B to enter.
+        let transport = SlowTransport(delay: .milliseconds(150))
+        let drain = Self.makeDrain(store: store, credentials: credentials, transport: transport)
+
+        async let first = drain.drain(before: Self.farFutureDeadline, surfacingFailures: true)
+        async let second = drain.drain(before: Self.farFutureDeadline, surfacingFailures: true)
+        let reports = await [first, second]
+
+        #expect(transport.callCount == 1, "the queued ping reached the webhook \(transport.callCount) times")
+        // Exactly one drain reports the delivery; the other reports nothing rather than repeating it.
+        #expect(reports.map { $0.updates.count }.sorted() == [0, 1])
+        #expect(store.entriesNow.isEmpty)
+    }
 
     @Test
     func aDeliveredPingIsRemovedFromTheFileAndReportedSent() async throws {
