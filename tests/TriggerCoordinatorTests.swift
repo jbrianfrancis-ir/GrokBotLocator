@@ -404,4 +404,28 @@ struct TriggerCoordinatorTests {
         let centre = await geofence.currentCentre()
         #expect(centre == nil)
     }
+
+    /// The launch path: an interval already on disk must reach the gate through `start()`
+    /// ALONE, with no Settings visit at all -- a relaunch must not silently revert to the
+    /// default. LEARNINGS: the real `PingRateLimiter` throughout, never a fake -- a fake that
+    /// returns without suspending cannot test an actor.
+    @Test
+    func anIntervalOnDiskReachesTheGateAtStart() async {
+        let limiter = PingRateLimiter()
+        let (coordinator, _, _, _, _, _) = Self.makeCoordinator(
+            minimumIntervalSeconds: PingRateLimiter.defaultInterval * 2, rateLimiter: limiter)
+
+        await coordinator.start()
+        // No Settings visit -- start() alone must carry the interval on disk to the gate.
+
+        let t = Date(timeIntervalSince1970: 1_700_000_000)
+        #expect(await limiter.claim(at: t) == .allowed)
+        guard
+            case .tooSoon = await limiter.claim(
+                at: t.addingTimeInterval(PingRateLimiter.defaultInterval * 1.5))
+        else {
+            Issue.record("start() did not carry the interval on disk to the gate")
+            return
+        }
+    }
 }

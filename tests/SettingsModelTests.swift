@@ -683,4 +683,40 @@ struct SettingsModelTests {
         #expect(model.headerName == headerBefore)
         #expect(model.hasStoredKey == hasStoredBefore)
     }
+
+    /// The full chain, the UI's own path: a real `TriggerCoordinator` (not `FakeTriggerControl`)
+    /// wired to a real `PingRateLimiter`, driven through `SettingsModel.setMinimumInterval` --
+    /// the exact call SettingsView's Stepper makes -- and asserted against the GATE, not against
+    /// what got persisted. LEARNINGS: a fake that returns without suspending cannot test an
+    /// actor, so this uses the real limiter throughout, never a fake.
+    @Test
+    func anIntervalChangedInSettingsReachesTheGate() async {
+        let limiter = PingRateLimiter()
+        let coordinator = TriggerCoordinator(
+            source: TriggerCoordinatorTests.FakeTriggerSource(),
+            geofence: InMemoryGeofence(),
+            pinger: TriggerCoordinatorTests.CountingPinger(scriptedResults: []),
+            // No trigger event is ever delivered in this test, so no fix is ever requested.
+            fixes: TriggerCoordinatorTests.FakeFixProvider(result: .failure(KeychainFailure())),
+            settingsStore: TriggerCoordinatorTests.FakeSettingsStore(initial: .initial),
+            rateLimiter: limiter,
+            drain: {})
+        await coordinator.start()
+
+        let model = SettingsModel(store: FakeCredentialStore(), triggers: coordinator)
+        await model.loadTriggers()
+        await model.setMinimumInterval(PingRateLimiter.defaultInterval * 2)
+
+        let t = Date(timeIntervalSince1970: 1_700_000_000)
+        #expect(await limiter.claim(at: t) == .allowed)
+        // Halfway between the default and twice the default -- ALLOWED at the old wiring
+        // (default interval), REFUSED once the doubled interval set in Settings reaches the gate.
+        guard
+            case .tooSoon = await limiter.claim(
+                at: t.addingTimeInterval(PingRateLimiter.defaultInterval * 1.5))
+        else {
+            Issue.record("the gate ignored the interval set in Settings")
+            return
+        }
+    }
 }
