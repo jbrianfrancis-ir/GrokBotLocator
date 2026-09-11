@@ -1,9 +1,9 @@
 <!-- .planning/STATE.md — cap 1.5KB. Rewrite sections in place; never append. -->
 # State
 ## Position
-Phase: 4 of 4 (Automatic triggers) | Plans: 13 | Status: ready
-Last: 2026-09-11 — planned: 13 plans, 6 waves. 14 blocking issues closed; D-15 added MapKit, 3 plans revised, re-check PASS.
-Next: /flow-execute 4
+Phase: 4 of 4 (Automatic triggers) | Plans: 4/13 | Status: executing
+Last: 2026-09-11 — wave 1 done (04-01/02/03/05), fan-in smoke GREEN 195 tests/21 suites.
+Next: wave 2 — 04-04, 04-06, 04-07, 04-08, 04-09 (serialized)
 ## Gate
 none — D-15 (add MapKit; narrow to one file) answered 2026-09-11.
 ## Run
@@ -16,7 +16,8 @@ Signature: rule4:phase04:plans0/13:verifnone
 ## Blockers
 - none
 ## Session
-Stopped: phase 04 planned on flow/automatic-triggers. Nothing executed.
+Stopped: mid phase-04 execution, wave 1 of 6 complete. Executors run SERIALIZED, not
+  parallel — LEARNINGS: a shared git index crosses commit attribution regardless of disjoint files.
 Resume: 3 rulings still open (D-15 answered only the geocoder) — ARCHITECTURE silent on
   UIBackgroundModes:location; and
   PR #4's two, held as backstop truths on 04-05 (hydrate() vs D-12) and 04-10 (UnqueuedPingSink
