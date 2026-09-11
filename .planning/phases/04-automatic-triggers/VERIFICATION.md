@@ -1,8 +1,9 @@
 ---
 phase: 04-automatic-triggers
-status: human_needed
+status: gaps
 smoke: pass
-gaps: []
+gaps:
+  - "REQ-08 circular arming: on a COLD RELAUNCH with only the geofence trigger enabled, the region can never arm. `reference` is in-memory and nil in a fresh process; `applySettings` registers only `if currentCentre() == nil, let reference` (TriggerCoordinator.swift:121-122); and the ONLY reference-recovery from `geofence.currentCentre()` sits inside `runSignificantChange` (:191), which is disabled in that configuration. So with no persisted region there is nothing to register and nothing that will ever set a reference — the trigger is dead until the user taps I'm here or enables another trigger. Per-trigger toggles are a shipped REQ-09 feature, so geofence-only is a supported configuration. Found by machine-driven simulator run, not by review."
 unverified:
   - "04-05: `QueueDrainCoordinator.hydrate()` copies queue entries into `PingHistoryLog` vs ARCHITECTURE.md:72 'never copied anywhere else' — still present (QueueDrainCoordinator.swift:86-110), deliberately not ruled on."
   - "04-10: `UnqueuedPingSink` (PingSender.swift:67) echoes the classifier's retryable sentence, which `PingSender` then downgrades to `.permanentFailure` — a 429 in the no-queue build still renders as 'Failed: it is waiting and will be sent again.' Conflicts with D-14; untouched on purpose."
@@ -35,9 +36,25 @@ unverified:
 | 04-04 / 04-05 / 04-10 backstop truths | HUMAN (non-inferable) | see `unverified` — spec doesn't settle these; nothing pins them down. |
 
 ## Human checks
-- [ ] REQ-06 on device/sim — GPX route crossing 500 m, app backgrounded → one ping; a 300 m route → none.
+- [x] **REQ-06 — PASS (2026-09-11, simulator, machine-driven, both halves).** Driven with
+  `xcrun simctl location start --speed=20 --distance=50` (real interpolated movement, NOT a
+  teleport). Origin 40.05590,17.99250 → 520 m north: exactly ONE new row appeared, at
+  **40.06041** = **500.8 m** displacement, i.e. the first update at/past the 500 m threshold.
+  Then 300 m north of that NEW reference, after waiting out the 15 s rate limit so the limiter
+  could not be the cause: **no new row**. Screenshots sim-02/sim-03. The automatic row's label
+  read "Gallipoli" while the manual label field read "test", so D-15's MapKit reverse geocoding
+  also worked on a real send path. Rows read Queued (webhook unreachable on that simulator),
+  which does not affect what this proves: the trigger fired, and the gate refused the 300 m move.
+  **Correction to an earlier claim in this file's own guidance: significant-change DOES work in
+  the simulator.** A teleport (Features ▸ Location ▸ Custom) produces nothing; `location start`
+  with interpolated waypoints works. Fixtures in `scripts/gpx/`.
 - [ ] REQ-07 on device — simulated visit arrival, backgrounded → exactly one ping shown as Arrival.
-- [ ] REQ-08 on device — after one manual ping, move >150 m → one exit ping; move >150 m again → a second (proves re-registration).
+- [ ] **REQ-08 — NOT REPRODUCED (2026-09-11, simulator).** With significant-change and visits
+  disabled so any ping had to be a geofence exit, a 300 m move past the 150 m radius produced
+  no row. Two candidate causes, NOT yet distinguished: (a) `CLMonitor` events may not be
+  delivered in the simulator; (b) the region may not have persisted across the relaunch, which
+  RESEARCH already lists as UNVERIFIED. Still needs a device. See the new gap below — found
+  while investigating this, and true independently of which cause holds.
 - [ ] REQ-05 fourth drain end to end — airplane mode on, tap "I'm here" to queue, background, airplane off, drive a location wake → queued ping goes out with NO announcement; history reads Sent on reopen.
 - [x] **REQ-10 live prompt — PASS (2026-09-11, simulator, human-attested).** With all three
   triggers off nothing is requested; enabling one raises the Always prompt; choosing "While
