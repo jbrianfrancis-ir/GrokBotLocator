@@ -221,6 +221,11 @@ struct QueueDrainCoordinatorTests {
             Issue.record("PingSending.send should never be called by QueueDrainCoordinator")
             return PingAttempt(fix: nil, disposition: .sent, statusCode: nil, responseBody: nil)
         }
+
+        func send(label: String, using fix: LocationFix) async -> PingAttempt {
+            Issue.record("PingSending.send should never be called by QueueDrainCoordinator")
+            return PingAttempt(fix: nil, disposition: .sent, statusCode: nil, responseBody: nil)
+        }
     }
 
     /// `ping()` is never called in this suite either (see `NeverCalledSender` above), so the

@@ -24,6 +24,10 @@ private struct NoopPingSender: PingSending {
     func send(label: String) async -> PingAttempt {
         PingAttempt(fix: nil, disposition: .sent, statusCode: nil, responseBody: nil)
     }
+
+    func send(label: String, using fix: LocationFix) async -> PingAttempt {
+        PingAttempt(fix: fix, disposition: .sent, statusCode: nil, responseBody: nil)
+    }
 }
 
 private struct NoopPingLabelStore: PingLabelStore {

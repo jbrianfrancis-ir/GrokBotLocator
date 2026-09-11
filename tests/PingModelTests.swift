@@ -70,6 +70,10 @@ struct PingModelTests {
             return attemptToReturn
         }
 
+        func send(label: String, using fix: LocationFix) async -> PingAttempt {
+            await send(label: label)
+        }
+
         /// Resumes a call suspended by `shouldSuspend`, letting `ping()` complete. Safe to call
         /// before `send` has suspended -- the `released` latch makes the order irrelevant.
         func release() {
