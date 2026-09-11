@@ -1,24 +1,31 @@
 <!-- .planning/STATE.md — cap 1.5KB. Rewrite sections in place; never append. -->
 # State
 ## Position
-Phase: 3 of 4 PR #4 OPEN — 12/12 plans, smoke 177/19, 8/8 checks closed, 0 gaps
-Last: 2026-09-11 — acceptance found a DOUBLE-DELIVERY bug no test caught (actor reentrancy, 64f7b7d). D-13 shrank the type scale; D-14 settled all 3 backstops.
-Next: review + merge PR #4 (human); then /flow-next. Phase 02's 11 checks still open
+Phase: 4 of 4 (Automatic triggers) | Plans: 13 | Status: ready
+Last: 2026-09-11 — planned: 13 plans, 6 waves, checker PASS after 1 round closed 14 blocking issues.
+Next: rule the gate, then /flow-execute 4
 ## Gate
-none — D-13 (type scale; amends DESIGN.md + REQ-12) and D-14 (4xx policy, give-up horizon,
-retention, bundle-id scope) answered 2026-09-11. All 3 backstops now stated in REQUIREMENTS.md.
+type: decision
+asked: Reverse-geocoded labels, a stated phase-04 deliverable, cannot be built as specified.
+  `CLGeocoder` is soft-deprecated at iOS 26.0 ("Use MapKit"); its replacement
+  `MKReverseGeocodingRequest` is in MapKit, NOT on ARCHITECTURE's closed Frameworks list.
+  As planned, phase 04 ships EMPTY labels.
+options:
+  1. Add MapKit to ARCHITECTURE Frameworks — 04-04 gains 1 file; labels ship as REQ-06/07/08 specify.
+  2. Ship empty labels — plans run unchanged; label half defers; marker stays open.
+  3. Use CLGeocoder anyway — no ARCHITECTURE edit, builds on an API Apple says to stop using.
+default: none
+plan: 04-04
 ## Run
-Iteration: 3 | Started: 2026-09-10T19:10Z | Repeats: 0
-Signature: rule8:phase03:plans12/12:verifpass
+Iteration: 2 | Started: 2026-09-11T15:03Z | Repeats: 0
+Signature: rule6:phase04:plans13/13:verifnone
 ## Decisions
-- init: iOS 26.0; deploy.tool null — merge terminal (D-01/04/07)
-- 15:30: type curves LEFT ALONE; AX5 inversion accepted (02-01)
 - D-12: queue is the one sanctioned coordinate store; payload gains `at`
+- D-13/D-14: type scale −1 step; 429+408 retryable; 7-day give-up; keep-until-shown
 ## Blockers
 - none
 ## Session
-Stopped: PR #4 open — https://github.com/jbrianfrancis-ir/GrokBotLocator/pull/4. Review found 6
-  blocking defects AFTER verification said pass; 3 were actor reentrancy, 1 was a locked device
-  destroying the queue. All fixed, 3 rounds, final round clean. Docs only, no CI on this repo.
-Resume: merge is human. 2 open decisions in the PR body: hydrate() vs ARCHITECTURE:72's "never
-  copied", and UnqueuedPingSink relabelling a 429 as permanent ("Failed: it is waiting").
+Stopped: phase 04 planned on flow/automatic-triggers. Nothing executed.
+Resume: 3 rulings open besides the gate — ARCHITECTURE silent on UIBackgroundModes:location; and
+  PR #4's two, held as backstop truths on 04-05 (hydrate() vs D-12) and 04-10 (UnqueuedPingSink
+  calls a 429 permanent). ROADMAP says rule both here. Phase 02's 11 checks still open.
