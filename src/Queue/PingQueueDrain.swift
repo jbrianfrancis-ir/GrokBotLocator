@@ -138,6 +138,10 @@ actor PingQueueDrain {
             var entry = queue[index]
             index += 1
             var keep: Bool
+            // Where `updates` stood before this entry. If this entry's delta write fails, its
+            // update is the ONE that was reported but never persisted -- everything before it was
+            // already committed by the last successful apply, because the delta is cumulative.
+            let updatesBeforeThisEntry = updates.count
 
             if let reason = entry.permanentFailure {
                 // Marked during an earlier, non-surfacing drain: report it again, delete it
@@ -197,6 +201,11 @@ actor PingQueueDrain {
             do {
                 try await store.apply(removing: removed, updating: changed)
             } catch {
+                // Report exactly what reached disk. This entry's row would otherwise read Sent
+                // for a ping still queued, and the next drain re-POSTs it -- the duplicate happens
+                // either way, but the row should not claim a delivery the queue does not agree
+                // with. Earlier entries stay reported: their removal is already committed.
+                updates.removeLast(updates.count - updatesBeforeThisEntry)
                 break
             }
         }
