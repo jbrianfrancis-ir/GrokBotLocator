@@ -74,7 +74,7 @@ struct PingQueueStoreTests {
     }
 
     @Test
-    func replaceRemovesADeliveredEntry() async throws {
+    func applyRemovesADeliveredEntryAndLeavesTheRestAlone() async throws {
         let (directory, teardown) = Self.throwawayDirectory()
         defer { teardown() }
 
@@ -86,11 +86,58 @@ struct PingQueueStoreTests {
         try await store.append(second)
         try await store.append(third)
 
-        try await store.replace(with: [first, third])
+        try await store.apply(removing: [second.id], updating: [])
 
         let loaded = try await store.load()
         #expect(loaded == [first, third])
         #expect(!loaded.contains { $0.id == second.id })
+    }
+
+    /// `apply` merges against what is on disk NOW, which is the whole point of it: an entry that
+    /// appeared after the caller took its snapshot must survive the caller's write. This is the
+    /// store-level half of `aPingQueuedDuringADrainIsNotErasedByTheRewrite`.
+    @Test
+    func applyPreservesAnEntryTheCallerNeverSaw() async throws {
+        let (directory, teardown) = Self.throwawayDirectory()
+        defer { teardown() }
+
+        let store = FilePingQueueStore(directory: directory)
+        let known = Self.makeQueuedPing()
+        try await store.append(known)
+
+        // Appears after a caller would have loaded [known] -- the drain's exact situation.
+        let late = Self.makeQueuedPing()
+        try await store.append(late)
+
+        try await store.apply(removing: [known.id], updating: [])
+
+        let loaded = try await store.load()
+        #expect(loaded.map(\.id) == [late.id], "an entry the caller never saw must not be erased")
+    }
+
+    /// An id in `updating` replaces in place rather than appending, and an id in BOTH lists is
+    /// removed -- removal wins, so a delivered entry can never be resurrected by a stale update.
+    @Test
+    func applyReplacesInPlaceAndLetsRemovalWin() async throws {
+        let (directory, teardown) = Self.throwawayDirectory()
+        defer { teardown() }
+
+        let store = FilePingQueueStore(directory: directory)
+        let entry = Self.makeQueuedPing(attemptsMade: 1)
+        let other = Self.makeQueuedPing()
+        try await store.append(entry)
+        try await store.append(other)
+
+        var bumped = entry
+        bumped.attemptsMade = 4
+        try await store.apply(removing: [], updating: [bumped])
+        var loaded = try await store.load()
+        #expect(loaded.count == 2, "an update must replace, never append")
+        #expect(loaded.first { $0.id == entry.id }?.attemptsMade == 4)
+
+        try await store.apply(removing: [other.id], updating: [other])
+        loaded = try await store.load()
+        #expect(!loaded.contains { $0.id == other.id }, "removal must win over a same-id update")
     }
 
     /// Filling the queue and appending once more costs the NEW ping, never an existing one --

@@ -209,6 +209,27 @@ struct PingModelTests {
         #expect(model.log.entries[0].reason == "The webhook is unavailable (HTTP 503).")
     }
 
+    /// A drain reports a BATCH. Announcing `updates.last` meant a queue of [A rejected, B sent]
+    /// said "Ping sent." and A's permanent rejection was never spoken -- and the badge was
+    /// suppressed too, because B's row is the newest. The worst outcome is the one to announce.
+    @Test
+    func aBatchAnnouncesItsWorstOutcomeNotItsLast() async {
+        let fakes = Fakes()
+        let model = fakes.makeModel()
+        let rejected = PingDeliveryUpdate(
+            id: UUID(), timestamp: Self.fixtureFix.timestamp, latitude: 1, longitude: 2,
+            label: "A", outcome: .failed, reason: "Rejected by the webhook (HTTP 401).")
+        let delivered = PingDeliveryUpdate(
+            id: UUID(), timestamp: Self.fixtureFix.timestamp, latitude: 3, longitude: 4,
+            label: "B", outcome: .sent, reason: nil)
+
+        model.apply([rejected, delivered], announcing: true)
+
+        #expect(model.lastAttempt?.outcome == .failed)
+        #expect(model.lastAttempt?.reason == "Rejected by the webhook (HTTP 401).")
+        #expect(model.lastAttempt?.spoken.hasPrefix("Ping failed.") == true)
+    }
+
     @Test
     func theBadgeIsSuppressedWhenTheNewestRowAlreadySaysIt() async {
         // The screen that prompted this: one send, one row reading "Sent", and the badge beside
