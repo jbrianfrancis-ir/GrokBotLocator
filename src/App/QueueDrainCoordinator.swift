@@ -37,6 +37,12 @@ final class QueueDrainCoordinator {
     private var hasHydrated = false
     /// The one connectivity-observing `Task`, started at most once and cancellable via `stop()`.
     private var connectivityTask: Task<Void, Never>?
+    /// Explicit, app-set state: is a scene actually on screen right now? Defaults to `false` --
+    /// a process that came up for a location event or a background refresh has nobody looking at
+    /// it, and a coordinator that defaulted to "present" would announce on exactly the path this
+    /// flag exists to silence. Never inferred here from a clock or a UIKit query; the scene-phase
+    /// handler is the only writer, via `setUserPresent(_:)`.
+    private var userIsPresent = false
 
     init(
         store: any PingQueueStoring,
@@ -57,11 +63,20 @@ final class QueueDrainCoordinator {
     /// connectivity edges. Idempotent -- a second call re-runs the foreground drain and leaves
     /// hydration and the connectivity observer exactly as they were.
     func start() async {
+        userIsPresent = true
         await hydrate()
         await drainForeground()
         if connectivityTask == nil {
             startObservingConnectivity()
         }
+    }
+
+    /// Records whether a scene is actually on screen -- called from the app's scene-phase
+    /// handler, nothing else. Sets the flag and nothing more: no drain, no side effect. 04-13's
+    /// handler already calls `drainForeground()` separately on `.active`, so triggering a drain
+    /// from here too would double it.
+    func setUserPresent(_ present: Bool) {
+        userIsPresent = present
     }
 
     /// Restores whatever is on the queue file into the visible history, SILENTLY -- no badge, no
@@ -113,16 +128,25 @@ final class QueueDrainCoordinator {
         model.apply(updates, announcing: false)
     }
 
-    /// A drain the user is present for: a launch, a foreground return, or a connectivity edge
-    /// arriving while the app is open. Failures are surfaced -- reported to the log AND, for an
-    /// already-permanent one, deleted from the queue file now that it has actually been shown --
-    /// and every outcome is announced (REQ-04/DESIGN.md: outcomes are announced, not just drawn).
-    /// A budget of 25 seconds leaves headroom under the transport's own 30-second resource bound
-    /// for one attempt while still returning control to the caller promptly.
+    /// The NAMED entry point every automatic drain trigger calls -- launch, foreground return,
+    /// a connectivity edge, and (04-11) a location wake. Failures are surfaced -- reported to the
+    /// log AND, for an already-permanent one, deleted from the queue file now that it has
+    /// actually been shown -- regardless of who is present. A budget of 25 seconds leaves
+    /// headroom under the transport's own 30-second resource bound for one attempt while still
+    /// returning control to the caller promptly.
+    ///
+    /// Announcing is conditional on `userIsPresent`, not unconditional as it was in phase 03:
+    /// a location wake usually arrives with the app backgrounded or cold-launched, and this is
+    /// the same method a launch and a foreground return also call, so it cannot simply announce
+    /// always or never. This closes the LEARNINGS entry recorded against this file -- "a
+    /// background-wake outcome sets `lastAttempt` and can announce a result for a tap the user
+    /// never made" -- for the path phase 04 adds. `drainBackground()` is untouched: it already
+    /// passes `announcing: false` unconditionally and has its own budget, because a
+    /// `BGAppRefreshTask` wake has no notion of on-screen presence to ask.
     func drainForeground() async {
         let report = await drain.drain(
             before: now().addingTimeInterval(25), surfacingFailures: true)
-        model.apply(report.updates, announcing: true)
+        model.apply(report.updates, announcing: userIsPresent)
         if let notice = report.notice {
             model.show(notice: notice)
         }
