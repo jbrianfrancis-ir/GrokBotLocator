@@ -126,7 +126,10 @@ struct GrokBotLocatorApp: App {
                 source: proxy, geofence: geofence, pinger: pinger,
                 // The SAME `CoreLocationFixProvider` the manual path already uses -- the
                 // geofence-exit path needs a one-shot fix and there is no reason for a second.
-                fixes: fixes, settingsStore: triggerStore, drain: drain))
+                fixes: fixes, settingsStore: triggerStore,
+                // The SAME `rateLimiter` above -- not a second one -- so a minimum interval set
+                // in Settings reaches the one gate the manual and automatic paths share.
+                rateLimiter: rateLimiter, drain: drain))
 
         _settingsModel = State(
             wrappedValue: SettingsModel(

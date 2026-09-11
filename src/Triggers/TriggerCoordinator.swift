@@ -21,6 +21,10 @@ actor TriggerCoordinator {
     private let pinger: any AutomaticPinging
     private let fixes: any LocationFixProvider
     private let settingsStore: any TriggerSettingsStoring
+    /// The seam between the stored interval and the enforcer (REQ-09's gap): `applySettings`
+    /// carries `s.minimumIntervalSeconds` here on every entry, and this type never restates the
+    /// floor or the default -- `setMinimumInterval`'s own clamp is the only one that applies.
+    private let rateLimiter: any PingRateLimiting
     private let drain: @Sendable () async -> Void
 
     private var settings: TriggerSettings
@@ -40,6 +44,7 @@ actor TriggerCoordinator {
         pinger: any AutomaticPinging,
         fixes: any LocationFixProvider,
         settingsStore: any TriggerSettingsStoring,
+        rateLimiter: any PingRateLimiting,
         drain: @escaping @Sendable () async -> Void
     ) {
         self.source = source
@@ -47,6 +52,7 @@ actor TriggerCoordinator {
         self.pinger = pinger
         self.fixes = fixes
         self.settingsStore = settingsStore
+        self.rateLimiter = rateLimiter
         self.drain = drain
         self.settings = .initial
     }
@@ -87,6 +93,11 @@ actor TriggerCoordinator {
     /// a refusal is reported through `authorizationNotice()`, not by silently leaving a trigger
     /// that IS switched on in Settings unarmed.
     private func applySettings(_ s: TriggerSettings) async {
+        // FIRST -- above the Always request, so a refusal cannot skip it. Both entries into this
+        // function carry the stored interval to the gate: `start()` (the value just loaded from
+        // disk) and `update(_:)` (the value a Settings change just persisted).
+        await rateLimiter.setMinimumInterval(s.minimumIntervalSeconds)
+
         if s.anyTriggerEnabled, await source.currentAuthorization() != .authorizedAlways {
             _ = await source.requestAlways()
             alwaysWasRequested = true

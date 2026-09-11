@@ -197,7 +197,9 @@ struct TriggerCoordinatorTests {
         visitsEnabled: Bool = false,
         geofenceEnabled: Bool = false,
         fixResult: Result<LocationFix, Error> = .success(TriggerCoordinatorTests.fix()),
-        pingerScript: [AutomaticPingResult] = []
+        pingerScript: [AutomaticPingResult] = [],
+        minimumIntervalSeconds: TimeInterval = PingRateLimiter.defaultInterval,
+        rateLimiter: any PingRateLimiting = PingRateLimiter()
     ) -> (
         coordinator: TriggerCoordinator, source: FakeTriggerSource, geofence: InMemoryGeofence,
         pinger: CountingPinger, counter: DrainCounter, store: FakeSettingsStore
@@ -210,11 +212,12 @@ struct TriggerCoordinatorTests {
         settings.significantChangeEnabled = significantChangeEnabled
         settings.visitsEnabled = visitsEnabled
         settings.geofenceEnabled = geofenceEnabled
+        settings.setMinimumInterval(minimumIntervalSeconds)
         let store = FakeSettingsStore(initial: settings)
         let counter = DrainCounter()
         let coordinator = TriggerCoordinator(
             source: source, geofence: geofence, pinger: pinger, fixes: fixes, settingsStore: store,
-            drain: { await counter.increment() })
+            rateLimiter: rateLimiter, drain: { await counter.increment() })
         return (coordinator, source, geofence, pinger, counter, store)
     }
 
