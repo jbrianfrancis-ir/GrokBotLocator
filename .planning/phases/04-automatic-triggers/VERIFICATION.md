@@ -39,8 +39,17 @@ unverified:
 - [ ] REQ-07 on device — simulated visit arrival, backgrounded → exactly one ping shown as Arrival.
 - [ ] REQ-08 on device — after one manual ping, move >150 m → one exit ping; move >150 m again → a second (proves re-registration).
 - [ ] REQ-05 fourth drain end to end — airplane mode on, tap "I'm here" to queue, background, airplane off, drive a location wake → queued ping goes out with NO announcement; history reads Sent on reopen.
-- [ ] REQ-10 live prompt — with all three off nothing is requested; enabling one raises the Always prompt; choosing "While Using" shows the distinct sentence and "I'm here" still sends.
-- [ ] REQ-12/AX5 — the new "Automatic pings" section (three toggles, interval Stepper, notice) at AX5 in light and dark: no truncation, clipping or overlap, all targets still tappable; Accessibility Inspector reports no contrast or hit-target failure.
+- [x] **REQ-10 live prompt — PASS (2026-09-11, simulator, human-attested).** With all three
+  triggers off nothing is requested; enabling one raises the Always prompt; choosing "While
+  Using" shows the distinct sentence and "I'm here" still sends. Attested by the owner as
+  part of batch 1; not machine-evidenced. **Caveat:** if `xcrun simctl privacy booted reset
+  location` was not run beforehand, the "nothing is requested with all toggles off" half was
+  not genuinely exercised — a previously-answered prompt does not re-raise.
+- [x] **REQ-12/AX5 — PASS (2026-09-11, simulator, human-attested).** The new "Automatic pings"
+  section (three toggles, interval Stepper, notice) at AX5 in light and dark: no truncation,
+  clipping or overlap; targets tappable. Attested by the owner as part of batch 1; not
+  machine-evidenced, and the Accessibility Inspector audit result was not reported separately.
+  The accepted `actionLabel` > `screenTitle` inversion at AX5 (15:30 decision) remains accepted.
 - [ ] SC-03 — a full sightseeing day with all three triggers on, Settings ▸ Battery share under 5%. Watch significant-change first.
 - [ ] Backstop: `hydrate()` copying queue entries into `PingHistoryLog` — narrow ARCHITECTURE.md:72's "never copied anywhere else", or drop the copy and accept losing queued rows on relaunch. State the rule, then pin it with a test.
 - [ ] Backstop: `UnqueuedPingSink`'s 429 sentence vs D-14 — write honest no-queue copy, or ratify the current downgrade. Then pin it.
