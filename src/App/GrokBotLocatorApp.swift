@@ -136,12 +136,29 @@ struct GrokBotLocatorApp: App {
     var body: some Scene {
         WindowGroup {
             RootView(pingModel: pingModel, settingsModel: settingsModel)
-                .task { await coordinator?.start() }
+                .task {
+                    // Order matters: hydrate and drain the queue FIRST, so a trigger that fires
+                    // immediately after launch is not racing the launch drain. `triggerCoordinator
+                    // .start()` is the FOREGROUND touchpoint where Always may be armed (RESEARCH
+                    // consequence 4: a `CLServiceSession` can only be started in the foreground) --
+                    // it must never be called from `init()`.
+                    await coordinator?.start()
+                    await triggerCoordinator?.start()
+                }
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .active {
+                        // Presence is set BEFORE the drain so this drain announces -- unlike a
+                        // location wake, which must see `false` (below).
+                        coordinator?.setUserPresent(true)
                         Task { await coordinator?.drainForeground() }
                     } else if phase == .background {
+                        // `false` is the value a location wake must see: a process that comes up
+                        // for a location event never passes through `.active`, so this is also
+                        // 04-05's default and what keeps that drain silent.
+                        coordinator?.setUserPresent(false)
                         scheduleRefresh()
+                    } else if phase == .inactive {
+                        coordinator?.setUserPresent(false)
                     }
                 }
         }
