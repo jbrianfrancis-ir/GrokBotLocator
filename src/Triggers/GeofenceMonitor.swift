@@ -10,11 +10,15 @@ import Foundation
 /// and REQ-06's 500 m is a movement threshold, not a radius. See this plan's `backstop_truths`.
 ///
 /// This file writes NOTHING to disk and keeps no per-app settings key of its own. The region
-/// `CLMonitor` already holds under `conditionIdentifier` IS the durable record of where the last
-/// ping happened -- that is what `currentCentre()` reads back (RESEARCH.md Q2; confirmed live
-/// against the DocC page for `CLMonitor.record(for:)` on 2026-09-11, see this plan's SUMMARY).
-/// Persisting a second coordinate anywhere would be a second coordinate store, which
-/// ARCHITECTURE's Forbidden list reserves solely for the offline queue file (D-12).
+/// `CLMonitor` holds under `conditionIdentifier` is ONE of two durable records of where the last
+/// ping happened -- what `currentCentre()` reads back (RESEARCH.md Q2; confirmed live against the
+/// DocC page for `CLMonitor.record(for:)` on 2026-09-11, see this plan's SUMMARY) is still the
+/// region's own state, nothing more. The OTHER record is `LastPingStore.swift` (D-16,
+/// 2026-09-11): a cold relaunch with only the geofence trigger enabled has no way to recover a
+/// reference from this type alone if no region survived, so `TriggerCoordinator
+/// .recoverReferenceIfNeeded()` reads the last-ping file FIRST and falls back to `currentCentre()`
+/// here second. D-16 widened D-12's "never copied anywhere else" by exactly one more sanctioned
+/// store, and no further -- this file still persists nothing of its own.
 protocol GeofenceMonitoring: Sendable {
     /// Registers (or replaces) the one region, centred on `coordinate`.
     func register(at coordinate: TriggerCoordinate) async
@@ -144,14 +148,25 @@ actor CLMonitorGeofence: GeofenceMonitoring {
 // simulated exit, and that `radiusMetres` stays pinned at 150. It CANNOT prove that the OS
 // actually wakes a suspended or terminated app for a real geofence exit -- that needs a device.
 //
-// Reproduction steps for whoever runs the device check:
-// 1. Build to a device or simulator with Always authorization granted and the geofence trigger
-//    switched on in Settings.
-// 2. Tap "I'm here" to send one manual ping -- this is what should register a region at the
-//    current position (wired up by 04-11's TriggerCoordinator, not this file alone).
-// 3. In Xcode, use Debug ▸ Simulate Location (or a GPX route) to move more than 150 m away from
-//    that position.
-// 4. Confirm exactly ONE new ping appears in the history, marked as a geofence exit.
-// 5. Move more than 150 m again from THAT new position, and confirm a SECOND ping appears --
-//    this is what proves re-registration actually happened rather than the app being stuck
+// Reproduction steps for whoever runs the device check -- VERIFICATION.md found that Debug's
+// location-simulation menu produces no movement the OS ever notices (a teleport, not a route);
+// the machine-driven procedure below is what actually worked for REQ-06 and is what this plan's
+// own probe used.
+// 0. In Settings, switch OFF significant-change and visits so any ping delivered below can only
+//    be a geofence exit, and switch the geofence trigger ON with Always granted. Force-quit the
+//    app and relaunch it -- this is the cold-relaunch case this plan (04-15) fixes.
+// 1. Resolve a simulator UDID: `UDID=$(scripts/simulator-udid.sh)`.
+// 2. Grant Always ahead of time if the prompt has already been answered once:
+//    `xcrun simctl privacy "$UDID" grant location-always <bundle id>`.
+// 3. Settle at the reference point: `xcrun simctl location "$UDID" set 40.0559,17.9925`
+//    (`scripts/gpx/req06-start.gpx`'s coordinate), then tap "I'm here" once so a region registers
+//    at the current position.
+// 4. Drive the first exit with REAL interpolated movement, never a teleport:
+//    `xcrun simctl location "$UDID" start --speed=20 --distance=50 40.0559,17.9925 40.0577012,17.9925`
+//    (`scripts/gpx/req06-start.gpx` -> `scripts/gpx/req08-hop1.gpx`'s waypoints). Confirm exactly
+//    ONE new row appears in the history, marked as a geofence exit.
+// 5. Drive the second exit from there: `... start --speed=20 --distance=50
+//    40.0577012,17.9925 40.0595024,17.9925` (`req08-hop1.gpx` -> `req08-hop2.gpx`). Confirm a
+//    SECOND row appears -- this is what proves re-registration actually happened rather than the
+//    app being stuck
 //    watching the original region.
