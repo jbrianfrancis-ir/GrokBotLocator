@@ -63,6 +63,10 @@ struct PingModelTests {
                     if resumeNow { c.resume() }
                 }
             }
+            // A fake that returns without ever suspending cannot exercise anything that happens
+            // across an await (LEARNINGS) -- this genuinely yields on every call, not only the
+            // ones that opt into `shouldSuspend`.
+            await Task.yield()
             return attemptToReturn
         }
 
@@ -112,6 +116,14 @@ struct PingModelTests {
         func authorizationNotice() async -> String? { notice }
     }
 
+    /// Stands in for the shared gate everywhere except the two tests that need the real one
+    /// (04-09): always `.allowed`, so every pre-existing test above keeps pinging at whatever
+    /// pace it likes without tripping a rate limit it was never written to expect.
+    private struct AlwaysAllowingRateLimiter: PingRateLimiting {
+        func claim(at now: Date) async -> RateLimitDecision { .allowed }
+        func setMinimumInterval(_ seconds: TimeInterval) async {}
+    }
+
     // MARK: Fixtures -- synthetic values only, none resolves anywhere.
 
     private static let fixtureFix = LocationFix(
@@ -123,13 +135,23 @@ struct PingModelTests {
         let sender = FakeSender()
         let labelStore: FakeLabelStore
         let fixes = FakeLocationFixProvider()
+        let rateLimiter: any PingRateLimiting
+        let now: @Sendable () -> Date
 
-        init(initialLabel: String = "") {
+        init(
+            initialLabel: String = "",
+            rateLimiter: any PingRateLimiting = AlwaysAllowingRateLimiter(),
+            now: @escaping @Sendable () -> Date = { Date() }
+        ) {
             labelStore = FakeLabelStore(initialLabel: initialLabel)
+            self.rateLimiter = rateLimiter
+            self.now = now
         }
 
         func makeModel() -> PingModel {
-            PingModel(sender: sender, labelStore: labelStore, fixes: fixes)
+            PingModel(
+                sender: sender, labelStore: labelStore, fixes: fixes,
+                rateLimiter: rateLimiter, now: now)
         }
     }
 
@@ -702,5 +724,71 @@ struct PingModelTests {
         await model.refreshAuthorizationNotice()
 
         #expect(model.authorizationNotice == nil)
+    }
+
+    // MARK: The shared rate gate (REQ-09/SC-04) and the manual trigger (REQ-07)
+
+    @Test
+    func aTapInsideTheMinimumIntervalDoesNotSend() async {
+        let base = Self.fixtureFix.timestamp
+        let limiter = PingRateLimiter(minimumInterval: 60, lastAllowed: base)
+        let fakes = Fakes(rateLimiter: limiter, now: { base.addingTimeInterval(10) })
+        let model = fakes.makeModel()
+        fakes.sender.attemptToReturn = PingAttempt(
+            fix: Self.fixtureFix, disposition: .sent, statusCode: 200, responseBody: nil)
+
+        await model.ping()
+
+        #expect(fakes.sender.callCount == 0)
+        #expect(model.log.entries.isEmpty)
+        #expect(model.guidance?.hasPrefix("Too soon") == true)
+        #expect(model.lastAttempt?.outcome == .failed)
+    }
+
+    @Test
+    func aTapOutsideTheMinimumIntervalSends() async {
+        let base = Self.fixtureFix.timestamp
+        let limiter = PingRateLimiter(minimumInterval: 60, lastAllowed: base)
+        let fakes = Fakes(rateLimiter: limiter, now: { base.addingTimeInterval(60) })
+        let model = fakes.makeModel()
+        fakes.sender.attemptToReturn = PingAttempt(
+            fix: Self.fixtureFix, disposition: .sent, statusCode: 200, responseBody: nil)
+
+        await model.ping()
+
+        #expect(fakes.sender.callCount == 1)
+        #expect(model.log.entries.count == 1)
+    }
+
+    @Test
+    func aManualPingIsRecordedAsManual() async {
+        let fakes = Fakes()
+        let model = fakes.makeModel()
+        fakes.sender.attemptToReturn = PingAttempt(
+            fix: Self.fixtureFix, disposition: .sent, statusCode: 200, responseBody: nil)
+
+        await model.ping()
+
+        #expect(model.log.entries.first?.trigger == .manual)
+    }
+
+    /// The test that says SC-04 counts manual and automatic together: ONE `PingRateLimiter`,
+    /// claimed once directly (standing in for an automatic trigger), then a manual `ping()` 10s
+    /// later through a model holding that SAME limiter -- the manual tap must find the window
+    /// already spent.
+    @Test
+    func theManualPathAndAnAutomaticClaimShareOneWindow() async {
+        let base = Self.fixtureFix.timestamp
+        let limiter = PingRateLimiter(minimumInterval: 60)
+        _ = await limiter.claim(at: base)
+
+        let fakes = Fakes(rateLimiter: limiter, now: { base.addingTimeInterval(10) })
+        let model = fakes.makeModel()
+        fakes.sender.attemptToReturn = PingAttempt(
+            fix: Self.fixtureFix, disposition: .sent, statusCode: 200, responseBody: nil)
+
+        await model.ping()
+
+        #expect(fakes.sender.callCount == 0)
     }
 }
