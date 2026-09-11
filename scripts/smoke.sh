@@ -297,4 +297,20 @@ if [[ "$BG_IDENTIFIER" != *.queue-drain ]]; then
     exit 1
 fi
 
+echo "==> background-modes guard: the BUILT Info.plist declares UIBackgroundModes location and fetch"
+# Reuses $APP_PLIST from the background-identifier guard above -- derived from $DERIVED_DATA,
+# never a literal. Proves Task 1's project.yml change survived into the PRODUCT, not only into
+# project.yml.
+BG_MODES=$(/usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" "$APP_PLIST" 2>/dev/null || true)
+
+if [[ "$BG_MODES" != *location* ]]; then
+    echo "background-modes guard failed -- ${APP_PLIST}'s UIBackgroundModes is missing 'location' (significant-change/visits/CLMonitor wake needs it): ${BG_MODES}" >&2
+    exit 1
+fi
+
+if [[ "$BG_MODES" != *fetch* ]]; then
+    echo "background-modes guard failed -- ${APP_PLIST}'s UIBackgroundModes is missing 'fetch' (BGAppRefreshTask's queue drain needs it): ${BG_MODES}" >&2
+    exit 1
+fi
+
 echo "==> smoke passed"
