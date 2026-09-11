@@ -24,6 +24,7 @@ struct PingQueueDrainTests {
         private var entries: [QueuedPing]
         private var replaceCallsStorage: [[QueuedPing]] = []
         var loadErrorToThrow: Error?
+        var applyErrorToThrow: Error?
 
         init(entries: [QueuedPing] = []) {
             self.entries = entries
@@ -50,6 +51,7 @@ struct PingQueueDrainTests {
 
 
         func apply(removing: Set<UUID>, updating: [QueuedPing]) async throws {
+            if let applyErrorToThrow { throw applyErrorToThrow }
             lock.withLock {
                 let replacements = Dictionary(updating.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
                 entries = entries.compactMap { entry in
@@ -242,6 +244,34 @@ struct PingQueueDrainTests {
             "the ping queued mid-drain was erased by the drain's write; file holds \(store.currentEntries.count) entries")
         #expect(!store.currentEntries.contains { $0.id == inFlight.id }, "the delivered entry should be gone")
         #expect(transport.callCount == 1, "the late ping was not due and must not have been sent")
+    }
+
+    /// The device locking DURING a drain, found by the security and tests lenses in round 2 --
+    /// and made reachable by the round-1 fix that introduced `.unavailable`.
+    ///
+    /// A background drain has a 25s budget; the device can lock inside it. The delta write then
+    /// throws, and while that was `try?` the drain kept walking: it delivered every remaining
+    /// entry, removed none of them, and re-POSTed the lot on the next drain. Same coordinates to
+    /// the webhook twice, D-12 condition 3 silently unmet, SC-04's budget spent twice on one ping
+    /// -- the duplicate delivery of 64f7b7d back by a different route. If the queue cannot record
+    /// what was just done, the drain stops.
+    @Test
+    func aFailedDeltaWriteStopsTheDrainInsteadOfDeliveringMore() async throws {
+        let first = Self.makeQueuedPing()
+        let second = Self.makeQueuedPing()
+        let store = FakeQueueStore(entries: [first, second])
+        store.applyErrorToThrow = PingQueueError.unavailable
+        let credentials = FakeCredentialStore()
+        credentials.stored = Self.fixtureCredentials
+        let transport = FakeTransport()
+        let drain = Self.makeDrain(store: store, credentials: credentials, transport: transport)
+
+        _ = await drain.drain(before: Self.farFutureDeadline, surfacingFailures: true)
+
+        #expect(
+            transport.callCount == 1,
+            "the drain delivered \(transport.callCount) pings it could not remove; each is re-POSTed next drain")
+        #expect(store.currentEntries.count == 2, "nothing could be written, so nothing was removed")
     }
 
     /// A locked device is not a lost queue. `.unavailable` means the file could not be opened

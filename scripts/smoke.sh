@@ -93,8 +93,17 @@ CONNECTIVITY="src/Queue/Connectivity.swift"
 # including dropping comment-only lines first (a whole-file presence grep counts doc-comment
 # text, .planning/LEARNINGS.md) rather than a whole-line `grep -v`, which a real call could hide
 # beside on the same line.
+# Widened after PR review probed it by ESCAPE (adding a second coordinate writer) rather than by
+# absence (deleting a guarded one). Four probes walked straight past the old pattern: `write(toFile:`
+# (only `.write(to:` was named), `FileHandle(forWritingAtPath:)` (never named at all), a `data.write(`
+# split across two lines (grep is line-based -- the SAME multiline hole this file's own comment at the
+# top already documents for the type-scale guard, reintroduced in a guard written after that
+# learning), and `@preconcurrency import Network` (the `^import Network$` anchors below).
+# The multiline case is caught by SHAPE rather than by content -- `\.write\([[:space:]]*$` matches a
+# call left open at end of line -- because grep cannot see across lines at all. A writer that splits
+# its call some other way would still escape; this guard is honest about being a net, not a proof.
 QUEUE_STORE_HITS=$(grep -rnE \
-    'FileManager|\.write\(to:|URLResourceValues|isExcludedFromBackup|completeFileProtectionUnlessOpen' \
+    'FileManager|\.write\(to:|\.write\(toFile:|\.write\([[:space:]]*$|FileHandle|URLResourceValues|isExcludedFromBackup|completeFileProtectionUnlessOpen' \
     src --include='*.swift' 2>/dev/null \
     | grep -v "^${QUEUE_STORE}:" \
     | grep -vE '^[^:]*:[0-9]+: *(///|//|\*)' || true)
@@ -105,7 +114,7 @@ if [[ -n "$QUEUE_STORE_HITS" ]]; then
     exit 1
 fi
 
-NETWORK_IMPORT_HITS=$(grep -rnE '^import Network$' src --include='*.swift' 2>/dev/null \
+NETWORK_IMPORT_HITS=$(grep -rnE '^[[:space:]]*(@[A-Za-z]+[[:space:]]+)*import[[:space:]]+Network[[:space:]]*$' src --include='*.swift' 2>/dev/null \
     | grep -v "^${CONNECTIVITY}:" || true)
 
 if [[ -n "$NETWORK_IMPORT_HITS" ]]; then
