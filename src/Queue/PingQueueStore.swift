@@ -96,10 +96,21 @@ protocol PingQueueStoring: Sendable {
     /// Adds one pending ping to the queue, refusing rather than evicting if the queue is full.
     func append(_ ping: QueuedPing) async throws
 
-    /// Replaces the entire on-disk queue with `pings`. The drain's only write: after deciding
-    /// which entries were delivered, gave up, or are still pending, it writes back exactly the
-    /// survivors.
+    /// Replaces the entire on-disk queue with `pings`. Wholesale, and therefore only safe when
+    /// the caller has not awaited anything since it loaded -- see `apply(removing:updating:)`.
     func replace(with pings: [QueuedPing]) async throws
+
+    /// Applies a targeted change in ONE store turn: drops every entry whose id is in `removing`,
+    /// and replaces in place every entry whose id matches one in `updating`. Anything the caller
+    /// never saw is left exactly as it is.
+    ///
+    /// This exists because `replace(with:)` cannot be used safely by the drain. The drain loads a
+    /// snapshot, then awaits the network for up to 30s per entry, then writes back a value derived
+    /// entirely from that stale snapshot -- so a ping the user queued DURING the drain was
+    /// overwritten and silently lost, while its row still read Queued. That is SC-02's one
+    /// forbidden outcome, a silent drop wearing a success label. Merging against what is actually
+    /// on disk, inside the store's own turn, is what makes the drain's write safe.
+    func apply(removing: Set<UUID>, updating: [QueuedPing]) async throws
 }
 
 /// The one sanctioned coordinate store (D-12) -- an `actor` so two drain triggers (foreground
@@ -148,6 +159,14 @@ actor FilePingQueueStore: PingQueueStoring {
     }
 
     func load() async throws -> [QueuedPing] {
+        try readFromDisk()
+    }
+
+    /// The read, synchronous on purpose. `append` and `apply` are read-modify-writes, and an
+    /// `await` in the middle of one is a suspension point an actor is free to interleave at --
+    /// exactly the hole that lost a mid-drain ping. With no `await` between the read and the
+    /// write, each is atomic on the actor's own turn.
+    private func readFromDisk() throws -> [QueuedPing] {
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
             return []
         }
@@ -178,7 +197,7 @@ actor FilePingQueueStore: PingQueueStoring {
     }
 
     func append(_ ping: QueuedPing) async throws {
-        var pings = try await load()
+        var pings = try readFromDisk()
         guard pings.count < Self.capacity else {
             throw PingQueueError.full
         }
@@ -188,6 +207,16 @@ actor FilePingQueueStore: PingQueueStoring {
 
     func replace(with pings: [QueuedPing]) async throws {
         try write(pings)
+    }
+
+    func apply(removing: Set<UUID>, updating: [QueuedPing]) async throws {
+        let current = try readFromDisk()
+        let replacements = Dictionary(updating.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
+        let merged = current.compactMap { entry -> QueuedPing? in
+            if removing.contains(entry.id) { return nil }
+            return replacements[entry.id] ?? entry
+        }
+        try write(merged)
     }
 
     /// Moves the unreadable file aside under a fixed name, replacing any previous set-aside

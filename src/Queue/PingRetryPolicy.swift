@@ -10,17 +10,17 @@ import Foundation
 /// `PingClassifier`'s job, one layer down; this type decides only WHEN a retryable ping is
 /// next attempted and when retrying stops.
 ///
-/// Two decisions below are BACKSTOP, not derived from REQUIREMENTS.md, and a later reader
-/// should not mistake either for a settled rule:
-/// - The 7-day give-up horizon in `hasGivenUp`. SC-02 names a 7-day trip but sets no give-up
-///   horizon of its own; never giving up, and giving up after a day, are both equally
-///   defensible readings of it.
-/// - `PingClassifier`'s treatment of the non-401/403 4xx range (404, 410, 422, 429 ...) as
-///   PERMANENT, never retried. REQUIREMENTS.md settles only 401/403; 429 in particular is the
-///   documented "retry later" code, so retrying part of the 4xx range is equally defensible.
-///   Phase 02 carried this as an unresolved backstop (02-manual-ping/VERIFICATION.md
-///   `unverified`); this type does not change that decision, only notes it, since the give-up
-///   clock only ever starts ticking on ping the classifier has already called retryable.
+/// Both decisions below were BACKSTOP -- not derived from REQUIREMENTS.md -- until **D-14**
+/// settled them on 2026-09-11. They are now stated rules in REQUIREMENTS.md, and the tests that
+/// cover them pin a rule rather than merely recording this type's choice:
+/// - The 7-day give-up horizon in `hasGivenUp`, measured in elapsed time from the FIRST attempt
+///   rather than in attempt count. Confirmed unchanged by D-14.
+/// - The 4xx split. **D-14 reversed what this comment used to say**: 408 and 429 are now
+///   RETRYABLE (`PingClassifier`, `PingTransport.swift`), because they mean "not now" rather than
+///   "not ever" and succeed on a later attempt. The rest of the non-401/403 range (400, 404, 409,
+///   410, 422, 499 ...) stays permanent -- retrying cannot fix a wrong URL or a malformed body.
+///   The give-up clock only ever starts on a ping the classifier already called retryable, so
+///   408/429 now reach this type where previously they did not.
 struct PingRetryPolicy: Sendable, Equatable {
     static let standard = PingRetryPolicy()
 

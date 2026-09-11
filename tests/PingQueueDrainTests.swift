@@ -54,6 +54,17 @@ struct PingQueueDrainTests {
                 replaceCallsStorage.append(pings)
             }
         }
+
+        func apply(removing: Set<UUID>, updating: [QueuedPing]) async throws {
+            lock.withLock {
+                let replacements = Dictionary(updating.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
+                entries = entries.compactMap { entry in
+                    if removing.contains(entry.id) { return nil }
+                    return replacements[entry.id] ?? entry
+                }
+                replaceCallsStorage.append(entries)
+            }
+        }
     }
 
     /// Replays a caller-set script of responses or errors, one per call, holding past the end of
@@ -199,6 +210,44 @@ struct PingQueueDrainTests {
         // Exactly one drain reports the delivery; the other reports nothing rather than repeating it.
         #expect(reports.map { $0.updates.count }.sorted() == [0, 1])
         #expect(store.currentEntries.isEmpty)
+    }
+
+    /// The append-vs-drain half of the read-modify-write hole. Found independently by the
+    /// correctness and tests lenses at PR review, each with a failing reproduction.
+    ///
+    /// `isDraining` closed drain-vs-drain. This is the same shape one call site over, and it loses
+    /// data instead of duplicating it: `drain()` snapshots the queue before its first `await`, then
+    /// parks on the network for up to 30s, during which the user can tap "I'm here" and have
+    /// `DurablePingSink` append to the SAME store. The drain then wrote back a value derived from
+    /// its stale snapshot and the new ping was gone from disk — while its row still read Queued.
+    /// That is SC-02's one forbidden outcome, a silent drop wearing a success label, and it is
+    /// worse than the double delivery that was fixed first, which at least delivered.
+    ///
+    /// The connectivity edge makes it MORE likely, not less: that trigger fires exactly when the
+    /// network just came back, which is exactly when someone taps.
+    @Test
+    func aPingQueuedDuringADrainIsNotErasedByTheRewrite() async throws {
+        let inFlight = Self.makeQueuedPing()
+        let store = FakeQueueStore(entries: [inFlight])
+        let credentials = FakeCredentialStore()
+        credentials.stored = Self.fixtureCredentials
+        let transport = SlowTransport(delay: .milliseconds(200))
+        let drain = Self.makeDrain(store: store, credentials: credentials, transport: transport)
+
+        async let draining = drain.drain(before: Self.farFutureDeadline, surfacingFailures: true)
+
+        // Lands while the drain is parked on the network, exactly as a real tap would.
+        try await Task.sleep(for: .milliseconds(60))
+        let late = Self.makeQueuedPing()
+        try await store.append(late)
+
+        _ = await draining
+
+        #expect(
+            store.currentEntries.contains { $0.id == late.id },
+            "the ping queued mid-drain was erased by the drain's write; file holds \(store.currentEntries.count) entries")
+        #expect(!store.currentEntries.contains { $0.id == inFlight.id }, "the delivered entry should be gone")
+        #expect(transport.callCount == 1, "the late ping was not due and must not have been sent")
     }
 
     /// A locked device is not a lost queue. `.unavailable` means the file could not be opened
