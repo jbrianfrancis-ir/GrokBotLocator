@@ -27,6 +27,10 @@
 - Foundation `URLSession` — webhook POST
 - Network `NWPathMonitor` — gating retries while the process is alive (cannot wake a suspended app)
 - BackgroundTasks `BGAppRefreshTask` — supplementary opportunistic queue drain
+- MapKit `MKReverseGeocodingRequest` — reverse geocoding for automatic-ping labels (D-15,
+  2026-09-11). `CLGeocoder`/`CLPlacemark` are soft-deprecated at iOS 26.0 ("Use MapKit"), so
+  this list does not pin the app to a deprecated API. First-party Apple SDK: "Zero third-party
+  dependencies" is untouched. Confined to one file — see Forbidden.
 - Swift Testing (bundled with Xcode 26.6) — unit tests
 
 ## Architecture & patterns
@@ -77,5 +81,8 @@ has to be able to tell. A drained ping reports where the phone **was**, and when
   only in planning records, where naming it is how a decision stays auditable. The build-side
   rule is unchanged and still enforced: 03-11 proved `project.yml` carries no literal bundle id,
   and smoke's guard keeps it that way.
+- Importing MapKit anywhere but `src/Triggers/MapKitTriggerLabelProvider.swift` (D-15). The
+  framework is authorized for reverse geocoding only; a map view, a map tile, or MapKit types
+  leaking into the ping path are outside what was allowed.
 - Force-unwrapping a `CLLocation` or a network response.
 - Liquid Glass behind body text, credential fields, or the primary action (chrome only — see `DESIGN.md`).
