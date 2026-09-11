@@ -31,6 +31,17 @@ actor PingQueueDrain {
     private let policy: PingRetryPolicy
     private let now: @Sendable () -> Date
 
+    /// True from the moment a drain starts until it returns.
+    ///
+    /// An `actor` serializes ENTRY, not a whole call: it is reentrant across every `await`, and
+    /// `drain()` awaits the network in the middle of a load-send-replace sequence. Without this
+    /// flag a second drain entered while the first was parked on `transport.send`, loaded the
+    /// same not-yet-replaced queue, and delivered the same ping again. That is not theoretical --
+    /// it happened on a simulator during phase 03 acceptance (2026-09-11): one queued ping, two
+    /// POSTs at the receiver carrying the same `at` in the same second. Both drains fire on
+    /// launch, `.task { start() }` and `scenePhase` -> `.active`.
+    private var isDraining = false
+
     init(
         store: any PingQueueStoring,
         credentials: any CredentialStore,
@@ -50,6 +61,14 @@ actor PingQueueDrain {
     /// already-marked or newly-marked permanent failure is deleted after being reported (see the
     /// type doc above).
     func drain(before deadline: Date, surfacingFailures: Bool) async -> PingDrainReport {
+        // Reads and writes of `isDraining` both sit on the actor's own turn with no `await`
+        // between them, so this guard is atomic even though the body below suspends repeatedly.
+        // A refused drain reports NOTHING rather than an empty-but-successful result: the drain
+        // already running owns this queue and will report whatever it delivers.
+        guard !isDraining else { return PingDrainReport(updates: [], notice: nil) }
+        isDraining = true
+        defer { isDraining = false }
+
         let queue: [QueuedPing]
         do {
             queue = try await store.load()
