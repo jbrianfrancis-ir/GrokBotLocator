@@ -1,6 +1,7 @@
 import CoreLocation
 import Foundation
 import MapKit
+import Synchronization
 
 /// The ONE file in the app permitted to import MapKit (D-15, ARCHITECTURE.md Forbidden). D-15
 /// authorized MapKit for reverse geocoding ONLY -- because `CLGeocoder`/`CLPlacemark` are
@@ -30,35 +31,70 @@ struct MapKitTriggerLabelProvider: TriggerLabelProviding {
     /// Every failure path lands on "": a nil failable init, a thrown error swallowed by
     /// `try?`, an empty result list, a nil locality, a whitespace-only name, and the budget
     /// expiring. There is no other outcome and this function cannot throw.
+    ///
+    /// DEVIATION from this plan's own description (found by an actual hang, not by review):
+    /// the plan called for racing the fetch and the timeout as two children of a
+    /// `withTaskGroup`, relying on `request.cancel()` to make the loser finish so the group's
+    /// implicit "await every child before returning" would not itself outlive the budget. In
+    /// this simulator, with no geocoding service reachable, `cancel()` did not make `await
+    /// request.mapItems` resume -- its underlying continuation was reported leaked by the
+    /// runtime -- and the whole function hung indefinitely instead of returning within budget.
+    /// RESEARCH.md `## Unverified` already declined to assume MapKit resumes cleanly under
+    /// throttling or offline conditions; this is now empirical evidence of exactly that failure
+    /// mode, stronger than what RESEARCH could establish on its own.
+    ///
+    /// The fix bounds this function BY CONSTRUCTION rather than by trusting MapKit's
+    /// cancellation: the fetch runs as an UNSTRUCTURED task that this function never awaits, so
+    /// if it never completes it is simply abandoned rather than held open. A `Mutex`-guarded
+    /// one-shot flag (`Synchronization.Mutex`, not `NSLock` + `@unchecked Sendable`, per
+    /// LEARNINGS.md) lets whichever of {fetch, timeout} finishes first resume the continuation
+    /// exactly once; the other's resume attempt is a no-op. `request.cancel()` is still called
+    /// on timeout as hygiene that may free resources sooner, but correctness no longer depends
+    /// on it working.
     func label(for coordinate: TriggerCoordinate) async -> String {
         let location = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
         guard let request = MKReverseGeocodingRequest(location: location) else {
             return ""
         }
 
-        // The request is a class and not `Sendable`. Boxing it lets the timeout side of the
-        // race below call `cancel()` on the loser -- its own documented lifecycle method
-        // (RESEARCH.md Q1: `isLoading`/`isCancelled`/`cancel()`) -- without the two concurrent
-        // accesses (the fetch task's `await request.mapItems`, the timeout task's
-        // `request.cancel()`) being an unproven race to the compiler. Calling `cancel()` on the
-        // loser is not decoration: `withTaskGroup` implicitly awaits every child before
-        // returning, so without it a slow-to-respond fetch could hold this function past its
-        // own budget rather than merely being ignored.
+        // The request is a class and not `Sendable`; boxing it lets both the fetch and the
+        // timeout below touch it (`.mapItems`, `.cancel()`) without that being an unproven race
+        // to the compiler.
         let box = UncheckedSendableBox(request)
+        // `Mutex` is itself unconditionally `Sendable`, but it is also noncopyable, so the
+        // compiler cannot verify a plain `let` capture shared by two separate escaping `Task`
+        // closures below is safe -- the SAFETY here comes from the mutex's own locking, not
+        // from the region checker, so `nonisolated(unsafe)` is the sanctioned way to say that
+        // rather than working around it with an unchecked wrapper type.
+        nonisolated(unsafe) let resumed = Mutex(false)
 
-        let winner: String? = await withTaskGroup(of: String?.self) { group in
-            group.addTask {
-                (try? await box.value.mapItems)?.first?.addressRepresentations?.cityName
+        let winner = await withCheckedContinuation { (continuation: CheckedContinuation<String?, Never>) in
+            // Deliberately unstructured and never awaited by this function -- if it never
+            // completes, it is abandoned, not held open past the budget.
+            Task {
+                let name = (try? await box.value.mapItems)?.first?.addressRepresentations?.cityName
+                let shouldResume = resumed.withLock { alreadyResumed -> Bool in
+                    guard !alreadyResumed else { return false }
+                    alreadyResumed = true
+                    return true
+                }
+                if shouldResume {
+                    continuation.resume(returning: name)
+                }
             }
-            group.addTask {
+
+            Task {
                 try? await Task.sleep(for: budget)
-                box.value.cancel()
-                return nil
+                let shouldResume = resumed.withLock { alreadyResumed -> Bool in
+                    guard !alreadyResumed else { return false }
+                    alreadyResumed = true
+                    return true
+                }
+                if shouldResume {
+                    box.value.cancel()
+                    continuation.resume(returning: nil)
+                }
             }
-
-            defer { group.cancelAll() }
-            let first = await group.next() ?? nil
-            return first
         }
 
         return normalisedTriggerLabel(winner ?? "")
