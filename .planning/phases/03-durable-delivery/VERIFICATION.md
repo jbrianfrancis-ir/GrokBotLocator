@@ -84,6 +84,38 @@ Wire-format condition met: `encodesExactlyTheFiveKeysWithTheRightTypes()` +
 - [x] **Retention until shown — SETTLED (D-14).** A background drain marks the failure and leaves it on disk; the next foreground drain reports and removes it. Confirms what shipped. This is what makes SC-02's "shown permanently failed with a reason" true for a failure found while nobody was looking. NOTE: the background path itself was still not exercised on a device — the foreground drain reports and deletes in one pass.
 - [x] **Bundle id in planning prose — SETTLED (D-14).** Out of scope for ARCHITECTURE's Forbidden list, which is narrowed to source and build configuration. A bundle id is not a secret and is public in any shipped build; the rule exists to keep signing identity out of the build, and that half is unchanged and still guarded (03-11 proved `project.yml` carries no literal).
 
+## Found at PR review, after this file said `pass`
+Seven lenses reviewed `main...HEAD`. They found **six blocking defects** this verification missed,
+three of them the same shape. Recorded here because "verified" plainly did not mean "correct", and
+the gap is instructive rather than embarrassing.
+
+**Three read-modify-write holes in `PingQueueDrain`, an actor.** An actor serializes ENTRY, not a
+call — it is reentrant at every `await`, and this type awaits the network in the middle of a
+load-decide-write. (1) drain-vs-drain delivered one ping twice (found on the simulator during
+acceptance, 64f7b7d). (2) drain-vs-enqueue **erased** a ping queued mid-drain while its row read
+Queued — SC-02's one forbidden outcome (080bda5). (3) A swallowed delta write let the drain keep
+delivering pings it could not remove, re-POSTing all of them next drain (1a0a191). None was
+reachable by the suite: every test drove one caller against a fake that returned without
+suspending. A fake that never suspends cannot test an actor.
+
+**A locked device destroyed the queue** (4329a97). `load()` wrapped the read and the decode in one
+`catch`, and D-12's `.completeFileProtectionUnlessOpen` means a closed file cannot be opened while
+the device is locked — which is exactly when `BGAppRefreshTask` fires. Every pending ping was
+renamed to a file nothing ever reads, and the user was told they "cannot be delivered". Data
+protection appears nowhere in this phase's source, plans or learnings; the case was never
+considered, and the simulator cannot surface it because protection is a no-op there.
+
+**Two document contradictions from D-13** (4329a97). `ARCHITECTURE.md:17` still forbade type below
+17pt while the app shipped 15pt — D-13 amended DESIGN.md and REQUIREMENTS.md and walked past the
+one document that outranks both. `DESIGN.md`'s Components section still carried the pre-D-13 sizes.
+
+**`SettingsView.saveBar` overflowed at AX5** (4329a97) on the validation-error path — a fix made
+during acceptance, which introduced it.
+
+Also corrected: the batch announcement spoke `updates.last`, so `[A rejected, B sent]` said "Ping
+sent." and A's rejection was never spoken at all; `drainBackground` announced despite its own name;
+`drain()` had no cancellation check; and four escape shapes walked past the new smoke guards.
+
 ## Learnings
 - The composition root (`GrokBotLocatorApp.init`) is verified only by code trace — no test constructs it, and no smoke guard asserts `DurablePingSink` is the shipped sink. A future edit swapping it back to `UnqueuedPingSink` would leave the whole suite green.
 - `PingQueueDrain` writes the queue back with `try? await store.replace(...)` (PingQueueDrain.swift:146): a failing rewrite is swallowed, so the "killed mid-drain cannot re-send" guarantee holds only while writes succeed. Drain tests prove the call pattern against a fake store, not the file.
