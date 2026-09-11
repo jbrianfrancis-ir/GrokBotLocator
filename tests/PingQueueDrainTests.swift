@@ -63,6 +63,40 @@ struct PingQueueDrainTests {
         }
     }
 
+    /// Commits every `apply` until the Nth, which throws -- so a drain commits some entries and
+    /// then loses the ability to record the rest, exactly as a device locking mid-drain does.
+    private final class FailOnNthApply: PingQueueStoring, @unchecked Sendable {
+        private let lock = NSLock()
+        private var entries: [QueuedPing]
+        private var applyCount = 0
+        private let failingOn: Int
+
+        init(entries: [QueuedPing], failingOn: Int) {
+            self.entries = entries
+            self.failingOn = failingOn
+        }
+
+        var currentEntries: [QueuedPing] { lock.withLock { entries } }
+
+        func load() async throws -> [QueuedPing] { lock.withLock { entries } }
+        func append(_ ping: QueuedPing) async throws { lock.withLock { entries.append(ping) } }
+
+        func apply(removing: Set<UUID>, updating: [QueuedPing]) async throws {
+            let shouldFail: Bool = lock.withLock {
+                applyCount += 1
+                return applyCount >= failingOn
+            }
+            if shouldFail { throw PingQueueError.unavailable }
+            lock.withLock {
+                let replacements = Dictionary(updating.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
+                entries = entries.compactMap { entry in
+                    if removing.contains(entry.id) { return nil }
+                    return replacements[entry.id] ?? entry
+                }
+            }
+        }
+    }
+
     /// Replays a caller-set script of responses or errors, one per call, holding past the end of
     /// the script on a plain 200 -- most tests below only ever need one or two calls answered.
     /// Lock-guarded for the same nonisolated-`async` reason as `FakeQueueStore`.
@@ -162,7 +196,7 @@ struct PingQueueDrainTests {
     }
 
     private static func makeDrain(
-        store: FakeQueueStore,
+        store: any PingQueueStoring,
         credentials: FakeCredentialStore,
         transport: any PingTransport,
         policy: PingRetryPolicy = .standard,
@@ -272,6 +306,29 @@ struct PingQueueDrainTests {
             transport.callCount == 1,
             "the drain delivered \(transport.callCount) pings it could not remove; each is re-POSTed next drain")
         #expect(store.currentEntries.count == 2, "nothing could be written, so nothing was removed")
+    }
+
+    /// The report must agree with disk. On a failed delta write the drain reports what actually
+    /// persisted and drops the one update it could not commit -- otherwise a row reads Sent for a
+    /// ping still sitting in the queue, which the next drain re-POSTs. Earlier entries stay
+    /// reported: the delta is cumulative, so their removal was already committed by the last
+    /// successful apply.
+    @Test
+    func aFailedDeltaWriteDoesNotReportTheUpdateItCouldNotPersist() async throws {
+        let first = Self.makeQueuedPing()
+        let second = Self.makeQueuedPing()
+        let store = FailOnNthApply(entries: [first, second], failingOn: 2)
+        let credentials = FakeCredentialStore()
+        credentials.stored = Self.fixtureCredentials
+        let transport = FakeTransport()
+        let drain = Self.makeDrain(store: store, credentials: credentials, transport: transport)
+
+        let report = await drain.drain(before: Self.farFutureDeadline, surfacingFailures: true)
+
+        // The first entry committed; the second was delivered but its removal never landed.
+        #expect(report.updates.count == 1, "reported \(report.updates.count) updates; only one persisted")
+        #expect(report.updates.first?.id == first.id)
+        #expect(store.currentEntries.map(\.id) == [second.id])
     }
 
     /// A locked device is not a lost queue. `.unavailable` means the file could not be opened
