@@ -25,13 +25,13 @@ actor TriggerCoordinator {
 
     private var settings: TriggerSettings
     /// Where the last ping happened. `nil` until the first ping ever goes out, or right after a
-    /// cold background relaunch before the significant-change handler (added in a later task)
-    /// rehydrates it from the geofence monitor's own durable record (this app keeps no second
-    /// coordinate file of its own -- D-12 reserves that role for the offline queue alone).
+    /// cold background relaunch before `runSignificantChange` rehydrates it from the geofence
+    /// monitor's own durable record (this app keeps no second coordinate file of its own -- D-12
+    /// reserves that role for the offline queue alone).
     private var reference: TriggerCoordinate?
     private var alwaysWasRequested = false
-    /// The tail of the serialized chain the trigger handlers (added in a later task) append onto.
-    /// Declared here so `settled()` below compiles before those handlers exist.
+    /// The tail of the serialized chain every handler below appends onto. `nil` until the first
+    /// callback arrives.
     private var chain: Task<Void, Never>?
 
     init(
@@ -126,9 +126,11 @@ actor TriggerCoordinator {
         settings
     }
 
-    /// The completion signal for the serialized chain a later task introduces. A handler will
-    /// return as soon as its work is QUEUED onto `chain`, not once it has run, so a caller that
-    /// wants to know whether a drain/gate/ping actually finished must await this afterward.
+    /// The completion signal for the serialized chain. A handler returns as soon as its work is
+    /// QUEUED onto `chain`, not once it has run -- `serialized(_:)` below assigns a `Task` and
+    /// returns immediately, so `await coordinator.handleSignificantChange(report)` on its own
+    /// proves nothing about whether the drain, the gate, or the ping actually happened yet.
+    /// Every assertion in the test suite runs after `await coordinator.settled()`.
     func settled() async {
         await chain?.value
     }
@@ -140,12 +142,94 @@ actor TriggerCoordinator {
         reference
     }
 
-    // Stubs so `start()` above compiles while the handlers are wired in -- a later task replaces
-    // each body with the real drain-first, gate-checked logic and adds the serialized chain that
-    // protects the reference-coordinate read-modify-write across them.
-    func handleSignificantChange(_ report: SignificantChangeReport) async {}
+    /// Chains `body` after whatever is currently in flight, and reassigns `chain` to the new
+    /// Task BEFORE any suspension -- so two callbacks arriving at once each capture a DIFFERENT
+    /// `previous` and queue one after the other rather than both reading `reference` off the same
+    /// stale snapshot. LEARNINGS: an actor serializes entry, not a call -- it is reentrant at
+    /// every `await`. Without this, `runSignificantChange` below is a read-modify-write across
+    /// three awaits (the geofence rehydration, the gate, and the ping itself), and two wakes
+    /// racing through it would both read the old `reference`, both pass the displacement gate,
+    /// and leave `reference` at whichever happened to finish last -- exactly the shape of holes
+    /// phase 03 shipped three of.
+    private func serialized(_ body: @escaping @Sendable () async -> Void) {
+        let previous = chain
+        chain = Task {
+            await previous?.value
+            await body()
+        }
+    }
 
-    func handleVisit(_ report: VisitReport) async {}
+    // MARK: - Significant change (REQ-06)
 
-    func handleGeofenceExit(at date: Date) async {}
+    func handleSignificantChange(_ report: SignificantChangeReport) async {
+        serialized { await self.runSignificantChange(report) }
+    }
+
+    private func runSignificantChange(_ report: SignificantChangeReport) async {
+        // FIRST and unconditional -- REQ-05's fourth drain opportunity, carried over from phase
+        // 03. This wake is a drain chance whether or not it becomes a ping, so it sits above
+        // every check below it, not beneath the enable check.
+        await drain()
+        guard settings.significantChangeEnabled else { return }
+        guard let fix = report.locationFix() else { return }
+        let coordinate = TriggerCoordinate(fix: fix)
+        if reference == nil {
+            // Cold-relaunch rehydration: the geofence monitor's registered region IS the durable
+            // record of where the last ping happened (GeofenceMonitor.swift), so a fresh process
+            // recovers it from there rather than this app keeping a second coordinate file.
+            reference = await geofence.currentCentre()
+        }
+        guard DisplacementGate.shouldPing(from: reference, to: coordinate) else { return }
+        await pingAndAdvance(fix: fix, coordinate: coordinate, trigger: .significantChange)
+    }
+
+    // MARK: - Visits (REQ-07)
+
+    func handleVisit(_ report: VisitReport) async {
+        serialized { await self.runVisit(report) }
+    }
+
+    private func runVisit(_ report: VisitReport) async {
+        await drain()
+        guard settings.visitsEnabled else { return }
+        // Arrival only -- a departure produces no ping (REQ-07). No displacement gate here:
+        // REQ-07 is about lingering somewhere, not about distance from the last ping.
+        guard report.isArrival else { return }
+        guard let fix = report.locationFix() else { return }
+        await pingAndAdvance(fix: fix, coordinate: TriggerCoordinate(fix: fix), trigger: .arrival)
+    }
+
+    // MARK: - Geofence exit (REQ-08)
+
+    func handleGeofenceExit(at date: Date) async {
+        serialized { await self.runGeofenceExit(at: date) }
+    }
+
+    private func runGeofenceExit(at date: Date) async {
+        await drain()
+        guard settings.geofenceEnabled else { return }
+        // The geofence monitor's exit event carries no coordinate of its own (RESEARCH.md Q2),
+        // so a geofence exit needs a fresh one-shot fix rather than reusing whatever centred the
+        // region.
+        guard let fix = try? await fixes.currentFix() else { return }
+        await pingAndAdvance(
+            fix: fix, coordinate: TriggerCoordinate(fix: fix), trigger: .geofenceExit)
+    }
+
+    // MARK: - Shared tail
+
+    /// The only place `reference` is advanced. Only a `.pinged` result moves it -- a rate-limited
+    /// or credential/fix-less attempt sent nothing, so "where the last ping was" has not changed
+    /// and re-registering the geofence there would be re-arming a region nothing actually reached.
+    private func pingAndAdvance(
+        fix: LocationFix, coordinate: TriggerCoordinate, trigger: PingTrigger
+    ) async {
+        let result = await pinger.ping(fix: fix, trigger: trigger)
+        guard case .pinged = result else { return }
+        reference = coordinate
+        if settings.geofenceEnabled {
+            await geofence.register(at: coordinate)
+        }
+    }
 }
+
