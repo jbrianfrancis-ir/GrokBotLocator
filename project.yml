@@ -27,11 +27,22 @@ targets:
         # never hands it the full screen. The empty dict opts in.
         UILaunchScreen: {}
         # The system location prompt's text comes from here -- a one-shot, point-of-use
-        # fix only, so this is the When-In-Use key. Always arrives with phase 04's triggers.
+        # fix only, so this is the When-In-Use key.
         NSLocationWhenInUseUsageDescription: "GrokBotLocator reads your location only when you tap I'm here, and sends it to the Grok webhook you configured."
-        # BGAppRefreshTask's supplementary opportunistic queue drain (REQ-05) needs the fetch
-        # background mode declared or BGTaskScheduler registration is refused outright.
-        UIBackgroundModes: [fetch]
+        # Always unlocks automatic triggers (REQ-06/07/08): significant-change updates, visits,
+        # and CLMonitor region events all need Always authorization to fire while the app is not
+        # running. Manual pings still work at When In Use alone (ARCHITECTURE: "Fully usable at
+        # When In Use"). Do NOT add the iOS-10-deprecated NSLocationAlwaysUsageDescription
+        # alongside this one (RESEARCH Q4).
+        NSLocationAlwaysAndWhenInUseUsageDescription: "GrokBotLocator sends your location to your Grok webhook automatically when you move or arrive somewhere -- only while the triggers you switched on in Settings are on."
+        # `location` is the WAKE-based UIBackgroundModes mode required for significant-change,
+        # visits and CLMonitor region events (REQ-06/07/08); iOS has only one `location` string,
+        # so this is the same string a continuous-GPS app would declare. ARCHITECTURE's Forbidden
+        # entry bans the startUpdatingLocation + allowsBackgroundLocationUpdates CALL PATTERN, not
+        # this plist key, and scripts/smoke.sh's location guard still rejects that pattern outright
+        # regardless of this key. `fetch` stays for BGAppRefreshTask's supplementary opportunistic
+        # queue drain (REQ-05); without it BGTaskScheduler registration is refused outright.
+        UIBackgroundModes: [location, fetch]
         # A build-setting REFERENCE, never a literal bundle id (ARCHITECTURE Forbidden).
         BGTaskSchedulerPermittedIdentifiers: ["$(PRODUCT_BUNDLE_IDENTIFIER).queue-drain"]
 
