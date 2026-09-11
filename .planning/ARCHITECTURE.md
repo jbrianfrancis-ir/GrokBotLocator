@@ -70,6 +70,12 @@ has to be able to tell. A drained ping reports where the phone **was**, and when
 - Any third-party dependency manager or package.
 - Continuous background GPS (`startUpdatingLocation` + `allowsBackgroundLocationUpdates`).
 - Storing or logging the sender key, the webhook URL, or raw coordinates — **except** the offline queue file described above, which is the one sanctioned store (D-12). Logs, analytics, `UserDefaults`, and the in-memory history remain off limits: the history list is session-only for exactly this reason.
-- Committing `DEVELOPMENT_TEAM`, a bundle id, or a provisioning profile.
+- Committing `DEVELOPMENT_TEAM`, a bundle id, or a provisioning profile **into source or build
+  configuration**. Scoped to `src/`, `project.yml`, `scripts/` and anything that ships — NOT to
+  `.planning/` prose (D-14). A bundle id is not a secret and is public in any shipped build; the
+  rule exists to keep signing identity out of the build, and phase 03's audit found the literal
+  only in planning records, where naming it is how a decision stays auditable. The build-side
+  rule is unchanged and still enforced: 03-11 proved `project.yml` carries no literal bundle id,
+  and smoke's guard keeps it that way.
 - Force-unwrapping a `CLLocation` or a network response.
 - Liquid Glass behind body text, credential fields, or the primary action (chrome only — see `DESIGN.md`).
