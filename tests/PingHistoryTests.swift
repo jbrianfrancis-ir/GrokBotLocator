@@ -133,4 +133,72 @@ struct PingHistoryTests {
         #expect(sent.outcome == .sent)
         #expect(sent.reason == nil)
     }
+
+    // MARK: - PingHistoryLog.apply (PingDeliveryUpdate)
+
+    private static func makeUpdate(
+        id: UUID,
+        outcome: PingOutcome = .sent,
+        reason: String? = nil
+    ) -> PingDeliveryUpdate {
+        PingDeliveryUpdate(
+            id: id,
+            timestamp: Date(),
+            latitude: 40.77465,
+            longitude: 17.23107,
+            label: "Manual ping",
+            outcome: outcome,
+            reason: reason
+        )
+    }
+
+    /// The in-place flip: a row already in the log gets corrected at ITS OWN index rather than
+    /// jumping to the top, which is what would make "flipped to Sent" indistinguishable from a
+    /// second ping.
+    @Test
+    func applyingAnUpdateForAKnownIdReplacesTheRowInPlace() {
+        var log = PingHistoryLog()
+        let first = Self.makeEntry(outcome: .queued, reason: "Waiting to send.")
+        let second = Self.makeEntry(outcome: .queued, reason: "Waiting to send.")
+        let third = Self.makeEntry(outcome: .queued, reason: "Waiting to send.")
+        log.record(first)
+        log.record(second)
+        log.record(third)
+        // Newest-first: [third, second, first]. The middle entry is `second`, at index 1.
+
+        log.apply(Self.makeUpdate(id: second.id, outcome: .sent, reason: nil))
+
+        #expect(log.entries.count == 3)
+        #expect(log.entries.map(\.id) == [third.id, second.id, first.id])
+        #expect(log.entries[1].outcome == .sent)
+        #expect(log.entries[1].reason == nil)
+    }
+
+    @Test
+    func applyingAnUpdateForAnUnknownIdInsertsANewestFirstRow() {
+        var log = PingHistoryLog()
+        let update = Self.makeUpdate(id: UUID(), outcome: .sent, reason: nil)
+
+        log.apply(update)
+
+        #expect(log.entries.count == 1)
+        let entry = log.entries[0]
+        #expect(entry.id == update.id)
+        #expect(entry.timestamp == update.timestamp)
+        #expect(entry.latitude == update.latitude)
+        #expect(entry.longitude == update.longitude)
+        #expect(entry.label == update.label)
+        #expect(entry.outcome == update.outcome)
+        #expect(entry.reason == update.reason)
+    }
+
+    @Test
+    func applyingUpdatesNeverExceedsCapacity() {
+        var log = PingHistoryLog()
+        for _ in 1...(PingHistoryLog.capacity + 5) {
+            log.apply(Self.makeUpdate(id: UUID()))
+        }
+
+        #expect(log.entries.count == PingHistoryLog.capacity)
+    }
 }

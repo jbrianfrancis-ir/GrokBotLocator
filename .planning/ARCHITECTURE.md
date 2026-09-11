@@ -14,7 +14,7 @@
 - **Credentials live only in the Keychain** — never in source, `project.yml`, `Info.plist`, `UserDefaults`, or a log line.
 - **No ping is silently dropped.** Every send succeeds, is durably queued, or is recorded as failed with a user-visible reason.
 - **Fully usable at "When In Use".** Manual pings work without `Always`; `Always` only unlocks automatic triggers.
-- **`DESIGN.md` is binding.** No type below 17pt, no tap target under 60pt, no state conveyed by colour alone, Dynamic Type to AX5 — the app must be usable without reading glasses.
+- **`DESIGN.md` is binding.** No type below 15pt (was 17pt until D-13), no tap target under 60pt, no state conveyed by colour alone, Dynamic Type to AX5 — the app must be usable without reading glasses.
 - **Transport and storage are protocol-backed and injected** — delivery is testable without a device or live webhook.
 
 ## Smoke
@@ -70,6 +70,12 @@ has to be able to tell. A drained ping reports where the phone **was**, and when
 - Any third-party dependency manager or package.
 - Continuous background GPS (`startUpdatingLocation` + `allowsBackgroundLocationUpdates`).
 - Storing or logging the sender key, the webhook URL, or raw coordinates — **except** the offline queue file described above, which is the one sanctioned store (D-12). Logs, analytics, `UserDefaults`, and the in-memory history remain off limits: the history list is session-only for exactly this reason.
-- Committing `DEVELOPMENT_TEAM`, a bundle id, or a provisioning profile.
+- Committing `DEVELOPMENT_TEAM`, a bundle id, or a provisioning profile **into source or build
+  configuration**. Scoped to `src/`, `project.yml`, `scripts/` and anything that ships — NOT to
+  `.planning/` prose (D-14). A bundle id is not a secret and is public in any shipped build; the
+  rule exists to keep signing identity out of the build, and phase 03's audit found the literal
+  only in planning records, where naming it is how a decision stays auditable. The build-side
+  rule is unchanged and still enforced: 03-11 proved `project.yml` carries no literal bundle id,
+  and smoke's guard keeps it that way.
 - Force-unwrapping a `CLLocation` or a network response.
 - Liquid Glass behind body text, credential fields, or the primary action (chrome only — see `DESIGN.md`).

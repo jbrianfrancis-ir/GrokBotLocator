@@ -27,9 +27,10 @@ protocol PingTransport: Sendable {
 /// Turns a `PingResponse` or a thrown transport error into a `PingDisposition` -- a pure
 /// function over a status code, no `URLSession`, no credential, no I/O. Any 2xx is `.sent`.
 /// 401/403 are permanent and point at Settings, since a wrong sender key or header name is
-/// the ordinary cause. The rest of the 4xx range is left undecided by REQUIREMENTS.md (see
-/// 02-03-PLAN.md backstop_truths) and is treated as permanent here too, naming the webhook
-/// URL instead since a routing/path mistake is the ordinary cause there. 5xx is retryable.
+/// the ordinary cause. 408 and 429 are RETRYABLE (D-14): they mean "not now", not "not ever",
+/// and a later attempt succeeds. The rest of the 4xx range is permanent, naming the webhook URL
+/// instead since a routing/path mistake is the ordinary cause there -- retrying a 404 or a 422
+/// cannot fix it. This was an open backstop truth until D-14 settled it. 5xx is retryable.
 /// Anything outside 200...599 (a redirect, a 1xx, a bogus code) is treated as permanent,
 /// naming the code, since none of those is a "try again" situation. A thrown transport error
 /// is always retryable, and the error itself is never interpolated into the reason -- it
@@ -43,6 +44,15 @@ enum PingClassifier {
         case 401, 403:
             return .permanentFailure(
                 reason: "Rejected by the webhook (HTTP \(code)). Check the sender key and header name in Settings."
+            )
+        case 408, 429:
+            // D-14: the two 4xx codes that mean "not now" rather than "not ever". 429 asks the
+            // caller to slow down and 408 timed out the request; both succeed on a later attempt,
+            // and treating them as permanent dropped a ping that would have gone through 30s
+            // later -- a real loss against SC-02 on a trip. ARCHITECTURE assumes no `Retry-After`
+            // handling, so these ride PingRetryPolicy's own backoff and ignore the server's hint.
+            return .retryable(
+                reason: "The webhook could not take this ping right now (HTTP \(code)). It is waiting and will be sent again."
             )
         case 400...499:
             return .permanentFailure(

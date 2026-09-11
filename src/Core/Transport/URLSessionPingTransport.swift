@@ -14,9 +14,20 @@ enum PingTransportError: Error, Equatable {
 /// device or a live webhook (ARCHITECTURE.md). No retry, no backoff, no queue, no logging --
 /// those live one layer up, in phase 03.
 struct URLSessionPingTransport: PingTransport {
+    /// A response body larger than this is truncated (see `send`) rather than read to
+    /// completion -- a budget, not a guess, so a fast reply that happens to be enormous cannot
+    /// OOM-kill the app the way an unbounded `String(decoding:)` of the whole body could.
+    static let maximumResponseBytes = 64 * 1024
+
     private let session: URLSession
 
-    init(session: URLSession = .shared) {
+    /// No default. `URLSession`'s shared instance hands out a read-only COPY of its
+    /// configuration, so `timeoutIntervalForResource` -- the only API that bounds an attempt's
+    /// TOTAL elapsed time, as opposed to `URLRequest.timeoutInterval`'s merely IDLE one
+    /// (measured at 64.1s against a 10s setting; see .planning/LEARNINGS.md) -- cannot be set
+    /// on it at all. A default here is how the unbounded session came back once already; the
+    /// caller must construct a bounded one explicitly (see `WebhookSession`, below).
+    init(session: URLSession) {
         self.session = session
     }
 
@@ -54,13 +65,48 @@ struct URLSessionPingTransport: PingTransport {
         // a machine endpoint the user typed; it has no legitimate reason to redirect. Refusing
         // also makes `PingClassifier`'s 3xx arm reachable, which it was not while the session
         // consumed the redirect.
-        let (data, response) = try await session.data(for: request, delegate: RedirectRefusal())
+        let (bytes, response) = try await session.bytes(for: request, delegate: RedirectRefusal())
 
         guard let http = response as? HTTPURLResponse else {
             throw PingTransportError.notAnHTTPResponse
         }
 
-        return PingResponse(statusCode: http.statusCode, body: String(decoding: data, as: UTF8.self))
+        // Budgeted read: stop and cancel the underlying task the moment the budget is hit,
+        // rather than reading the whole body and truncating afterward -- a drip-feeding or
+        // enormous reply must not be read to completion just to be thrown away.
+        var data = Data()
+        var truncated = false
+        for try await byte in bytes {
+            if data.count >= Self.maximumResponseBytes {
+                truncated = true
+                bytes.task.cancel()
+                break
+            }
+            data.append(byte)
+        }
+
+        var body = String(decoding: data, as: UTF8.self)
+        if truncated {
+            // REQ-11 shows the body verbatim; a silently shortened body would misrepresent the
+            // webhook's real reply, so the truncation is marked rather than hidden.
+            body += "\n… (response truncated at 64 KB)"
+        }
+
+        return PingResponse(statusCode: http.statusCode, body: body)
+    }
+}
+
+/// Constructs the app's one bounded `URLSession`. Ephemeral -- nothing about a webhook reply
+/// belongs in a disk cache -- with `timeoutIntervalForRequest` matching today's per-request
+/// idle setting and `timeoutIntervalForResource` bounding an attempt's TOTAL elapsed time,
+/// deliberately set ABOVE SC-01's 10s visible bound so a legitimate slow roaming send still
+/// completes rather than failing outright.
+enum WebhookSession {
+    static func make() -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 10
+        configuration.timeoutIntervalForResource = 30
+        return URLSession(configuration: configuration)
     }
 }
 

@@ -13,19 +13,27 @@ targets:
       base:
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "1"
-        GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait"
-        # Without a UILaunchScreen, iOS runs the app letterboxed in compatibility mode and
-        # never hands it the full screen. Generation: YES emits the empty dict that opts in.
-        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        GENERATE_INFOPLIST_FILE: NO
         CODE_SIGN_IDENTITY: "-"
         CODE_SIGN_ENTITLEMENTS: GrokBotLocator.entitlements
-        # The system location prompt's text comes from here -- a one-shot, point-of-use
-        # fix only, so this is the When-In-Use key. Always arrives with phase 04's triggers.
-        INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: "GrokBotLocator reads your location only when you tap I'm here, and sends it to the Grok webhook you configured."
     configFiles:
       Debug: Signing.xcconfig
       Release: Signing.xcconfig
+    info:
+      path: GrokBotLocator/Info.plist
+      properties:
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        # Without a UILaunchScreen, iOS runs the app letterboxed in compatibility mode and
+        # never hands it the full screen. The empty dict opts in.
+        UILaunchScreen: {}
+        # The system location prompt's text comes from here -- a one-shot, point-of-use
+        # fix only, so this is the When-In-Use key. Always arrives with phase 04's triggers.
+        NSLocationWhenInUseUsageDescription: "GrokBotLocator reads your location only when you tap I'm here, and sends it to the Grok webhook you configured."
+        # BGAppRefreshTask's supplementary opportunistic queue drain (REQ-05) needs the fetch
+        # background mode declared or BGTaskScheduler registration is refused outright.
+        UIBackgroundModes: [fetch]
+        # A build-setting REFERENCE, never a literal bundle id (ARCHITECTURE Forbidden).
+        BGTaskSchedulerPermittedIdentifiers: ["$(PRODUCT_BUNDLE_IDENTIFIER).queue-drain"]
 
   GrokBotLocatorTests:
     type: bundle.unit-test

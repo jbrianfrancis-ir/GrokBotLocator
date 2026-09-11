@@ -106,7 +106,8 @@ struct PingTransportTests {
         headerName: "X-Test-Key")
 
     private static let payload = PingPayload(
-        latitude: 40.77465, longitude: 17.23107, accuracyMetres: 12.5, label: "Gallipoli")
+        latitude: 40.77465, longitude: 17.23107, accuracyMetres: 12.5, label: "Gallipoli",
+        capturedAt: Date(timeIntervalSince1970: 1_700_000_000))
 
     private func makeTransport() -> URLSessionPingTransport {
         let configuration = URLSessionConfiguration.ephemeral
@@ -203,6 +204,53 @@ struct PingTransportTests {
         }
         #expect(!headers.keys.contains { $0.caseInsensitiveCompare("Authorization") == .orderedSame })
     }
+
+    // MARK: Total-time and response-byte bounds
+
+    /// The defect this pins: a fast 100MB reply satisfies any duration bound and still
+    /// OOM-kills the app. `send` must stop reading at the budget rather than reading the whole
+    /// body and truncating afterward, and must say so in the body rather than silently handing
+    /// back a shortened one (REQ-11).
+    @Test
+    func aLargeResponseBodyIsTruncatedAtTheBudgetAndSaysSo() async throws {
+        StubURLProtocol.reset()
+        let oneMegabyte = Data(repeating: UInt8(ascii: "a"), count: 1024 * 1024)
+        StubURLProtocol.stub = .init(statusCode: 200, body: oneMegabyte)
+
+        let response = try await makeTransport().send(Self.payload, using: Self.credentials)
+
+        #expect(response.body.count <= 64 * 1024 + 64)
+        #expect(response.body.hasPrefix("aaaa"))
+        #expect(response.body.contains("response truncated"))
+    }
+
+    /// The guard against a truncation marker leaking onto ordinary replies: a body under the
+    /// budget must come back exactly as stubbed, with nothing appended.
+    @Test
+    func aBodyUnderTheBudgetIsReturnedWholeAndUnmarked() async throws {
+        StubURLProtocol.reset()
+        let oneKilobyte = String(repeating: "b", count: 1024)
+        StubURLProtocol.stub = .init(statusCode: 200, body: Data(oneKilobyte.utf8))
+
+        let response = try await makeTransport().send(Self.payload, using: Self.credentials)
+
+        #expect(response.body == oneKilobyte)
+        #expect(!response.body.contains("response truncated"))
+    }
+
+    /// `URLRequest.timeoutInterval` is an IDLE bound, not a total one (measured at 64.1s
+    /// against a 10s setting). The total bound lives on the session's configuration and must
+    /// sit strictly above SC-01's 10s visible bound so a legitimate slow roaming send still
+    /// completes.
+    @Test
+    func theBoundedSessionCarriesATotalElapsedBound() {
+        let configuration = WebhookSession.make().configuration
+
+        #expect(configuration.timeoutIntervalForResource == 30)
+        #expect(configuration.timeoutIntervalForRequest == 10)
+        #expect(configuration.timeoutIntervalForResource > 10)
+    }
+
     // MARK: Redirects are refused, not followed
 
     /// The defect this pins: URLSession follows up to 20 redirects transparently. A webhook that

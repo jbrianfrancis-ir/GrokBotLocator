@@ -114,7 +114,12 @@ struct PingHomeView: View {
             // the 401 path as a history row only. Deliberately the badge ALONE, not the reason:
             // at AX5 a wrapped failure sentence runs 3-4 lines at ~67pt each and would eat the
             // budget the 88pt action floor needs. The sentence is first in the content instead.
-            if let attempt = model.lastAttempt {
+            //
+            // Gated on `showsLastAttemptBadge` since 2026-09-10: when the newest history row
+            // already carries this outcome, the badge repeated it a few hundred points below the
+            // row on the same screen. The model owns that question so it is testable; the paths
+            // that record no row still show the badge, which is what it was added for.
+            if model.showsLastAttemptBadge, let attempt = model.lastAttempt {
                 lastAttemptBadge(for: attempt.outcome)
             }
 

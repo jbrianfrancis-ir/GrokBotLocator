@@ -6,6 +6,10 @@ build/
 *.xcuserstate
 xcuserdata/
 
+# xcodegen `info:` block fully regenerates this from project.yml on every `generate` -- a
+# manual edit is silently overwritten (verified), so project.yml stays the source of truth.
+GrokBotLocator/Info.plist
+
 # Signing — team id, bundle id, and profiles never enter the repo
 Signing.xcconfig
 *.mobileprovision

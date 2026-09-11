@@ -12,10 +12,13 @@ struct LocationFix: Sendable, Equatable {
     let timestamp: Date
 
     /// The only bridge from a fix to the wire type. `label` is the caller's, not the fix's --
-    /// a `LocationFix` has no notion of who it is being sent for.
+    /// a `LocationFix` has no notion of who it is being sent for. `capturedAt` carries this
+    /// fix's own `timestamp` into the payload's `at` -- the only place that can supply it, so
+    /// a payload always reports when the fix was actually taken, not when it was sent.
     func payload(label: String) -> PingPayload {
         PingPayload(
-            latitude: latitude, longitude: longitude, accuracyMetres: accuracyMetres, label: label)
+            latitude: latitude, longitude: longitude, accuracyMetres: accuracyMetres, label: label,
+            capturedAt: timestamp)
     }
 
     /// The ONLY constructor 02-06's CoreLocation adapter is allowed to use to turn a raw
