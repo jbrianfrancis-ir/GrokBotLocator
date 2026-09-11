@@ -1,31 +1,29 @@
 <!-- .planning/STATE.md — cap 1.5KB. Rewrite sections in place; never append. -->
 # State
 ## Position
-Phase: 4 of 4 (Automatic triggers) | Plans: 14/14 | Status: verifying — human checks pending
+Phase: 4 of 4 (Automatic triggers) | Plans: 14/14 + 04-15 planning | Status: verifying
 Last: 2026-09-11 — REQ-06 PASSES both halves (machine-driven sim, ping at 500.8 m). New gap found.
-Next: /flow-plan 4 --gaps (REQ-08 circular arming); 7 human checks still open
+Next: check + execute 04-15; 7 human checks still open
 ## Gate
 type: human-action
-asked: Phase 04 is code-complete and green, but 10 checks need a real device and 3 backstop
-  truths need a stated RULE. Full list in VERIFICATION.md.
+asked: 7 of 10 checks still need a human. REQ-12/AX5, REQ-10, REQ-06 PASSED. The rest need a
+  device; 3 backstops need a stated RULE. List in VERIFICATION.md.
 options:
-  1. Run the 10 device checks + rule the 3 backstops, then /flow-verify 4 → /flow-pr.
+  1. Run the 7 remaining checks + rule the 3 backstops, then /flow-verify 4 → /flow-pr.
   2. Rule the 3 backstops now, defer device checks to UAT — phase stays unverified.
-  3. Open the PR first and treat the checks as PR evidence — merges REQ-06/07/08 unproven.
+  3. Open the PR first, treat the checks as PR evidence — merges REQ-07/08 unproven.
 default: none
 ## Run
-Iteration: 4 | Started: 2026-09-11T16:05Z | Repeats: 0
-Signature: rule5:phase04:plans14/14:verifhuman
+Iteration: 5 | Started: 2026-09-11T16:05Z | Repeats: 0
+Signature: rule2:phase04:plans14/14:verifgaps
 ## Decisions
-- D-12/D-13/D-14: queue is the one coordinate store; type −1 step; 429+408 retryable
-- D-15: MapKit authorized for reverse geocoding, confined to one file
+- D-13/D-14: type −1 step; 429+408 retryable; 7-day give-up; keep-until-shown
+- D-15: MapKit for reverse geocoding, one file
+- D-16: 2nd coordinate store — the single last-ping position, overwritten never appended
 ## Blockers
-- GAP REQ-08 circular arming: on a cold relaunch with ONLY the geofence enabled, the region can
-  never arm — `reference` is nil in a fresh process, registration needs one, and the only recovery
-  from `geofence.currentCentre()` sits inside the significant-change handler, which is off in that
-  configuration. Geofence-only is a supported REQ-09 configuration. Found by simulator run.
+- GAP REQ-08 circular arming: cold relaunch with ONLY geofence on can never arm the region.
+  D-16 unblocked the fix; plan 04-15 is being written.
 ## Session
-Stopped: phase 04 code-complete, 63 commits on flow/automatic-triggers, NOT pushed to a PR.
-Resume: 3 backstops need a rule — hydrate() vs D-12, UnqueuedPingSink's 429 vs D-14, MapKit
-  throttling. 2 qualified passes: 04-11's reference-advance rests on exact string equality across
-  3 files (untested); 04-13's no-queue path is code-trace only.
+Stopped: 66 commits on flow/automatic-triggers, pushed. No PR opened.
+Resume: 3 backstops need a rule — hydrate() vs D-12, UnqueuedPingSink's 429, MapKit throttling.
+  Sim testing needs `simctl location start`, NOT a teleport. GPX in scripts/gpx/.
