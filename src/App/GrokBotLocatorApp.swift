@@ -181,6 +181,21 @@ struct GrokBotLocatorApp: App {
     }
 }
 
+// MARK: - On-device verification (this phase's end-to-end runs the simulator cannot give)
+//
+// Phase 04's requirements are each written up with their own on-device reproduction steps where
+// the behaviour actually lives, not restated here: REQ-06/07 in TriggerCoordinator.swift, REQ-08
+// in GeofenceMonitor.swift, REQ-09 and REQ-10 in SettingsView.swift. The one this file owns is
+// REQ-05's fourth drain opportunity end to end -- the location-wake drain this composition root
+// is what actually wires up:
+// 1. Turn on airplane mode.
+// 2. Tap "I'm here" so a ping queues (it cannot send with no connectivity).
+// 3. Leaving airplane mode ON, background the app.
+// 4. Turn airplane mode off.
+// 5. Drive a location wake (Xcode Debug > Simulate Location, or a real trigger on device).
+// 6. Confirm the queued ping goes out with NO announcement while backgrounded, and that the
+//    history row reads Sent when the app is next opened.
+
 /// The app's one `BGAppRefreshTask` identifier, and the one place an empty identifier is turned
 /// into "submit nothing" rather than a guessed string.
 ///
