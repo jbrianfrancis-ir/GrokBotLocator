@@ -43,6 +43,16 @@ struct QueueDrainCoordinatorTests {
         func replace(with pings: [QueuedPing]) async throws {
             lock.withLock { entries = pings }
         }
+
+        func apply(removing: Set<UUID>, updating: [QueuedPing]) async throws {
+            lock.withLock {
+                let replacements = Dictionary(updating.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
+                entries = entries.compactMap { entry in
+                    if removing.contains(entry.id) { return nil }
+                    return replacements[entry.id] ?? entry
+                }
+            }
+        }
     }
 
     /// Replays a caller-set script of responses or errors, one per call, holding past the end of

@@ -13,10 +13,15 @@ struct PingDrainReport: Sendable, Equatable {
 /// The dequeue half of REQ-05/SC-02: attempt every due entry, delete what is delivered, back off
 /// what is not, and report every outcome as a `PingDeliveryUpdate` the history can apply
 /// (`PingModel.apply(_:announcing:)`, 03-10). An `actor` -- not a plain struct or class -- so two
-/// drain triggers (a connectivity edge and a foreground launch, say) can never interleave a
-/// read-modify-write of the queue file; the file itself has no locking of its own, only
-/// `FilePingQueueStore`'s single `write(_:)` call site, which this actor's isolation is what
-/// makes safe to call from more than one trigger.
+/// drain triggers (a connectivity edge and a foreground launch, say) are serialized on entry.
+///
+/// Actor isolation alone turned out NOT to be enough, twice, and both holes were the same shape:
+/// an actor is reentrant across `await`, and this type awaits the network in the middle of a
+/// read-modify-write. `isDraining` closes drain-vs-drain (it delivered one ping twice); applying a
+/// DELTA through `store.apply(removing:updating:)` instead of writing back a snapshot closes
+/// drain-vs-enqueue (it erased a ping the user queued mid-drain, while the row read Queued).
+/// Neither was caught by a test until PR review, because every test drove one caller at a time
+/// against a transport that never suspends.
 ///
 /// `surfacingFailures` is `PingModel.apply(_:announcing:)`'s reason to exist (03-07): a
 /// background wake marks a permanent failure on the entry and reports it, but leaves the entry on
@@ -106,16 +111,20 @@ actor PingQueueDrain {
             )
         }
 
-        var surviving: [QueuedPing] = []
+        // A DELTA, not a rewrite. `queue` is a snapshot taken before the first `await`, and the
+        // drain parks on the network for up to 30s per entry -- long enough for the user to tap
+        // "I'm here" and have `DurablePingSink` append to the same store. Writing back anything
+        // derived from the snapshot erased that ping while its row read Queued.
+        var removed: Set<UUID> = []
+        var changed: [QueuedPing] = []
         var updates: [PingDeliveryUpdate] = []
         var index = queue.startIndex
 
         while index < queue.endIndex {
             if now() >= deadline {
-                // The drain stops at its deadline with every remaining entry, including this
-                // one, still queued exactly as it is. Nothing further is written -- these
-                // entries were never touched.
-                surviving.append(contentsOf: queue[index...])
+                // The drain stops at its deadline with every remaining entry, including this one,
+                // still queued exactly as it is. They are simply absent from the delta, so nothing
+                // touches them.
                 break
             }
 
@@ -164,11 +173,14 @@ actor PingQueueDrain {
             }
 
             if keep {
-                surviving.append(entry)
+                changed.append(entry)
+            } else {
+                removed.insert(entry.id)
             }
-            // Rewritten after EVERY entry, not once at the end, so a process killed mid-drain
-            // cannot re-send a ping it already delivered.
-            try? await store.replace(with: surviving + queue[index...])
+            // Applied after EVERY entry, not once at the end, so a process killed mid-drain cannot
+            // re-send a ping it already delivered. The delta is cumulative and therefore
+            // idempotent: re-applying a removal or an update is a no-op.
+            try? await store.apply(removing: removed, updating: changed)
         }
 
         return PingDrainReport(updates: updates, notice: nil)
