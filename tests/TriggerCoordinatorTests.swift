@@ -199,7 +199,8 @@ struct TriggerCoordinatorTests {
         fixResult: Result<LocationFix, Error> = .success(TriggerCoordinatorTests.fix()),
         pingerScript: [AutomaticPingResult] = [],
         minimumIntervalSeconds: TimeInterval = PingRateLimiter.defaultInterval,
-        rateLimiter: any PingRateLimiting = PingRateLimiter()
+        rateLimiter: any PingRateLimiting = PingRateLimiter(),
+        lastPing: any LastPingStoring = InMemoryLastPingStore()
     ) -> (
         coordinator: TriggerCoordinator, source: FakeTriggerSource, geofence: InMemoryGeofence,
         pinger: CountingPinger, counter: DrainCounter, store: FakeSettingsStore
@@ -217,6 +218,7 @@ struct TriggerCoordinatorTests {
         let counter = DrainCounter()
         let coordinator = TriggerCoordinator(
             source: source, geofence: geofence, pinger: pinger, fixes: fixes, settingsStore: store,
+            lastPing: lastPing,
             rateLimiter: rateLimiter, drain: { await counter.increment() })
         return (coordinator, source, geofence, pinger, counter, store)
     }
@@ -403,6 +405,65 @@ struct TriggerCoordinatorTests {
         #expect(await source.visitsStopCount == 1)
         let centre = await geofence.currentCentre()
         #expect(centre == nil)
+    }
+
+    // MARK: REQ-08 cold-relaunch arming (D-16)
+
+    /// The case that already worked at HEAD, still proven not to regress: a PREVIOUS process left
+    /// a region registered (simulated here by calling `register` directly on the fake, standing
+    /// in for `CLMonitor` having persisted it), and `start()` must recover the reference from
+    /// THAT without re-registering over it.
+    @Test
+    func aColdStartWithOnlyTheGeofenceEnabledRecoversTheReference() async {
+        let (coordinator, _, geofence, _, _, _) = Self.makeCoordinator(geofenceEnabled: true)
+        let lastPingCoordinate = Self.coordinate(3, 3)
+        await geofence.register(at: lastPingCoordinate)
+
+        await coordinator.start()
+
+        #expect(await coordinator.currentReference() == lastPingCoordinate)
+        #expect(await geofence.registrations.count == 1, "start() must not re-register over a region already there")
+    }
+
+    /// The gap this plan closes: NO region survived the relaunch (the geofence fake starts
+    /// empty), but D-16's last-ping file does carry a coordinate. `start()` must recover the
+    /// reference from the FILE and use it to re-arm the region -- REQ-08 arms whether or not
+    /// CLMonitor persisted anything.
+    @Test
+    func aColdStartWithNoRegionRecoversFromTheLastPingFileAndArms() async {
+        let store = InMemoryLastPingStore()
+        let coordinate = Self.coordinate(4, 4)
+        await store.save(coordinate)
+        let (coordinator, _, geofence, _, _, _) = Self.makeCoordinator(
+            geofenceEnabled: true, lastPing: store)
+
+        await coordinator.start()
+
+        #expect(await coordinator.currentReference() == coordinate)
+        #expect(await geofence.currentCentre() == coordinate, "the region must be registered FROM the file")
+    }
+
+    /// D-16 condition 4's coordinator-level half: a real ping first proves the store holds the
+    /// coordinate the ping path just saved, then disabling every trigger must delete it, both on
+    /// disk and in memory.
+    @Test
+    func disablingEveryTriggerDeletesTheLastPingCoordinate() async {
+        let store = InMemoryLastPingStore()
+        let target = Self.coordinate(5, 5)
+        let (coordinator, _, _, pinger, _, _) = Self.makeCoordinator(
+            significantChangeEnabled: true, fixResult: .success(Self.fix(at: target)),
+            lastPing: store)
+        await coordinator.start()
+
+        await coordinator.handleSignificantChange(Self.significantChangeReport(at: target))
+        await coordinator.settled()
+        #expect(await pinger.callCount == 1)
+        #expect(await store.load() == target)
+
+        await coordinator.update(.initial)
+
+        #expect(await store.load() == nil)
+        #expect(await coordinator.currentReference() == nil)
     }
 
     /// The launch path: an interval already on disk must reach the gate through `start()`

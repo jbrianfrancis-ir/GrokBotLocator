@@ -116,6 +116,10 @@ struct GrokBotLocatorApp: App {
         let proxy = LocationDelegateProxy()
         let geofence = CLMonitorGeofence()
         let labels = MapKitTriggerLabelProvider()
+        // D-16's durable last-ping store, nil-when-unavailable exactly like `queue` above --
+        // Application Support can be unreachable, and a nil store is a no-op on the arming and
+        // ping paths rather than a second in-memory conformer standing in for it.
+        let lastPing = try? FileLastPingStore.applicationSupport()
         // Same `sender` the manual button uses (credentials, transport, classifier and durable
         // sink all shared) and the SAME `rateLimiter` above -- not a second one -- so SC-04's
         // ceiling counts manual and automatic pings together.
@@ -133,6 +137,8 @@ struct GrokBotLocatorApp: App {
                 // The SAME `CoreLocationFixProvider` the manual path already uses -- the
                 // geofence-exit path needs a one-shot fix and there is no reason for a second.
                 fixes: fixes, settingsStore: triggerStore,
+                // D-16's store, built above -- nil when Application Support is unavailable.
+                lastPing: lastPing,
                 // The SAME `rateLimiter` above -- not a second one -- so a minimum interval set
                 // in Settings reaches the one gate the manual and automatic paths share.
                 rateLimiter: rateLimiter, drain: drain))

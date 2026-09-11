@@ -21,6 +21,11 @@ actor TriggerCoordinator {
     private let pinger: any AutomaticPinging
     private let fixes: any LocationFixProvider
     private let settingsStore: any TriggerSettingsStoring
+    /// D-16's second sanctioned coordinate store -- the single last-ping position, overwritten
+    /// never appended. Optional for one reason only: Application Support can be unavailable, the
+    /// same case that already makes `queueCoordinator` nil at the composition root; a nil store
+    /// is a no-op there too, never a second in-memory conformer standing in for it.
+    private let lastPing: (any LastPingStoring)?
     /// The seam between the stored interval and the enforcer (REQ-09's gap): `applySettings`
     /// carries `s.minimumIntervalSeconds` here on every entry, and this type never restates the
     /// floor or the default -- `setMinimumInterval`'s own clamp is the only one that applies.
@@ -28,10 +33,10 @@ actor TriggerCoordinator {
     private let drain: @Sendable () async -> Void
 
     private var settings: TriggerSettings
-    /// Where the last ping happened. `nil` until the first ping ever goes out, or right after a
-    /// cold background relaunch before `runSignificantChange` rehydrates it from the geofence
-    /// monitor's own durable record (this app keeps no second coordinate file of its own -- D-12
-    /// reserves that role for the offline queue alone).
+    /// Where the last ping happened. `nil` until the first ping ever goes out, or until
+    /// `recoverReferenceIfNeeded()` rehydrates it. Two durable records can supply that recovery,
+    /// read in this order: this app's own last-ping file (D-16, `lastPing`), then the region
+    /// `CLMonitor` itself still holds (`geofence.currentCentre()`) -- see that helper.
     private var reference: TriggerCoordinate?
     private var alwaysWasRequested = false
     /// The tail of the serialized chain every handler below appends onto. `nil` until the first
@@ -44,6 +49,7 @@ actor TriggerCoordinator {
         pinger: any AutomaticPinging,
         fixes: any LocationFixProvider,
         settingsStore: any TriggerSettingsStoring,
+        lastPing: (any LastPingStoring)?,
         rateLimiter: any PingRateLimiting,
         drain: @escaping @Sendable () async -> Void
     ) {
@@ -52,6 +58,7 @@ actor TriggerCoordinator {
         self.pinger = pinger
         self.fixes = fixes
         self.settingsStore = settingsStore
+        self.lastPing = lastPing
         self.rateLimiter = rateLimiter
         self.drain = drain
         self.settings = .initial
@@ -116,14 +123,56 @@ actor TriggerCoordinator {
         }
 
         if s.geofenceEnabled {
+            // recoverReferenceIfNeeded() ABOVE the register condition is what closes REQ-08's
+            // cold-relaunch gap: in a geofence-only configuration `runSignificantChange` never
+            // runs, so this was the ONLY place able to notice `reference` is nil, and until D-16
+            // it had nothing but `geofence.currentCentre()` to recover from -- nothing if no
+            // region survived the relaunch. Reading `centre` here (not a second
+            // `geofence.currentCentre()` call below) means recovery and the register condition
+            // see the SAME value from the SAME turn.
+            let centre = await recoverReferenceIfNeeded()
             // Only registers when nothing is registered yet AND a reference already exists --
             // there is nothing to centre a region on before the first ping has ever gone out.
-            if await geofence.currentCentre() == nil, let reference {
+            // A nil centre is exactly what recovery-from-file (D-16) produces when no region
+            // survived: `reference` is now the file's coordinate, `centre` is still nil, so this
+            // re-registers there -- arming the geofence-only cold start.
+            if centre == nil, let reference {
                 await geofence.register(at: reference)
             }
         } else {
             await geofence.unregister()
         }
+
+        // D-16 condition 4: nothing is watching, so nothing needs the position, in memory or on
+        // disk. Last, so every disable branch above has already run.
+        if !s.anyTriggerEnabled {
+            await lastPing?.clear()
+            reference = nil
+        }
+    }
+
+    /// The ONE place `reference` is recovered, reading the two durable records D-16 leaves in
+    /// order: this app's own last-ping file first, then the region `CLMonitor` itself still
+    /// holds. Both `start()` (via `runSignificantChange`, still called there for a wake this
+    /// process is already handling) and `applySettings`'s geofence branch reach it through this
+    /// single definition -- never two copies that can drift.
+    ///
+    /// The double unwrap in `(await lastPing?.load() ?? nil) ?? centre` is REQUIRED, not
+    /// simplifiable. `lastPing` is `(any LastPingStoring)?` and `load()` itself returns
+    /// `TriggerCoordinate?`, so `await lastPing?.load()` is `TriggerCoordinate??` -- optional
+    /// chaining wraps the awaited result in one more layer of Optional. The naive
+    /// `await lastPing?.load() ?? centre` unwraps only the OUTER optional: a store that EXISTS
+    /// but is EMPTY produces `.some(nil))`, which is already non-nil at the outer layer, so
+    /// `centre` is never reached and the result is the inner `nil` -- exactly the geofence-only,
+    /// nothing-ever-pinged-yet cold start this fix exists for. `?? nil` collapses that inner
+    /// optional first, so a genuinely empty file correctly falls through to `centre`.
+    @discardableResult
+    private func recoverReferenceIfNeeded() async -> TriggerCoordinate? {
+        let centre = await geofence.currentCentre()
+        if reference == nil {
+            reference = (await lastPing?.load() ?? nil) ?? centre
+        }
+        return centre
     }
 
     /// What SettingsView renders (04-12): a finished sentence about what the current
@@ -184,12 +233,9 @@ actor TriggerCoordinator {
         guard settings.significantChangeEnabled else { return }
         guard let fix = report.locationFix() else { return }
         let coordinate = TriggerCoordinate(fix: fix)
-        if reference == nil {
-            // Cold-relaunch rehydration: the geofence monitor's registered region IS the durable
-            // record of where the last ping happened (GeofenceMonitor.swift), so a fresh process
-            // recovers it from there rather than this app keeping a second coordinate file.
-            reference = await geofence.currentCentre()
-        }
+        // Cold-relaunch rehydration -- the ONE definition, shared with `applySettings`'s
+        // geofence branch, so this and that never drift into two copies.
+        await recoverReferenceIfNeeded()
         guard DisplacementGate.shouldPing(from: reference, to: coordinate) else { return }
         await pingAndAdvance(fix: fix, coordinate: coordinate, trigger: .significantChange)
     }
@@ -238,6 +284,9 @@ actor TriggerCoordinator {
         let result = await pinger.ping(fix: fix, trigger: trigger)
         guard case .pinged = result else { return }
         reference = coordinate
+        // D-16: overwrite the durable record in place, above the geofence re-registration below,
+        // so only a real `.pinged` result ever moves it -- same guard as `reference` itself.
+        await lastPing?.save(coordinate)
         if settings.geofenceEnabled {
             await geofence.register(at: coordinate)
         }
