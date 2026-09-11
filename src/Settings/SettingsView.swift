@@ -116,6 +116,20 @@ struct SettingsView: View {
     /// awaiting the coordinator, so the control itself never waits on CoreLocation. The interval
     /// control's `in:` range is how REQ-09's floor is expressed here: the Stepper cannot reach a
     /// value below `PingRateLimiter.hardFloor`, so there is no error state to write for it.
+    ///
+    /// Two things here only a device or simulator can settle -- `SettingsModelTests` proves the
+    /// model's logic, not what the screen looks like or what the OS actually shows:
+    /// (a) AX5 reflow -- four controls whose labels are full sentences ("Big moves (500 m)" plus
+    /// its explanation, the arrivals and geofence rows, the interval Stepper's label, and the
+    /// notice with no `lineLimit`) have to wrap without truncation, clipping, or overlap, and
+    /// stay tappable at that size (DESIGN.md). The "Light — all triggers on, notice, AX5"
+    /// preview below is the closest a unit suite gets; it cannot prove there is no overlap on an
+    /// actual device.
+    /// (b) The real Always prompt -- with every trigger off, no prompt should appear at all
+    /// (REQ-10); flipping one on should raise it, and choosing "While Using" should turn
+    /// `triggerNotice` into the sentence read here on screen while the I'm here button keeps
+    /// sending. `FakeTriggerControl` proves the MODEL'S reaction to a notice; it cannot raise
+    /// the system's own dialog.
     private var automaticPingsSection: some View {
         VStack(alignment: .leading, spacing: DSMetrics.groupGap) {
             Text("Automatic pings")
