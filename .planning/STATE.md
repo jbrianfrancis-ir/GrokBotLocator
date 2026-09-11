@@ -7,8 +7,8 @@ Next: /flow-execute 4
 ## Gate
 none — D-15 (add MapKit; narrow to one file) answered 2026-09-11.
 ## Run
-Iteration: 1 | Started: 2026-09-11T16:05Z | Repeats: 0
-Signature: rule6:phase04:plans13/13:verifnone
+Iteration: 2 | Started: 2026-09-11T16:05Z | Repeats: 0
+Signature: rule4:phase04:plans0/13:verifnone
 ## Decisions
 - D-12: queue is the one sanctioned coordinate store; payload gains `at`
 - D-13/D-14: type scale −1 step; 429+408 retryable; 7-day give-up; keep-until-shown
