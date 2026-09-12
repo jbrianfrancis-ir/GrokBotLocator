@@ -6,7 +6,7 @@ Last: 2026-09-12 — D-21 (queue writable from a locked pocket) is BUILT AND ON 
   smoke green 275/29, signed device build installed + launched (pid 1567), profile to
   2027-09-12. D-21's own test named a member the fake lacked, so it had never compiled.
 Next: set the webhook in Settings on the phone, tap "I'm here", then walk 500 m to
-  confirm an automatic ping lands. D-21 + test fix still need a PR.
+  confirm an automatic ping lands. PR #6 open with D-21.
 ## Gate
 type: human-action
 asked: On the device with a 365-day profile. Remaining device checks are REQ-07 visits,
@@ -29,10 +29,10 @@ Signature: rule2:phase04:plans15/15:verifhuman
   the fence armed and computing (Inside)=>(Outside), but sCount stays 0 so it never delivers.
 - D-17/D-19 want pinning tests (D-18 done). 2 latent findings in TODOS.md.
 ## Session
-Stopped: PR #5 MERGED. D-21 + fixes on claude/ping-while-locked-fyn2q0, pushed,
-  3 commits off main, no PR open — holding it until the locked-pocket check passes.
-  Sim CANNOT prove the protection class: it surfaces no NSFileProtectionKey (probed,
-  control+protected both nil), so that test asserts only the seam. Device is the proof.
+Stopped: PR #5 MERGED. PR #6 OPEN (4 commits, mergeable) carrying D-21 off
+  claude/ping-while-locked-fyn2q0. Opened before the locked-pocket check by choice; the
+  limits are written into its body. Sim CANNOT prove the protection class: it surfaces no
+  NSFileProtectionKey (probed, control+protected both nil), so that test pins only the seam.
 Resume: app work is DONE for REQ-06; the only thing between here and a working 2-week
   tracker is a signing cert (Blockers). Sim needs `simctl location start` with lat,lon
   pairs, not a teleport; read locationd via `simctl spawn <udid> log show` before theorising.
