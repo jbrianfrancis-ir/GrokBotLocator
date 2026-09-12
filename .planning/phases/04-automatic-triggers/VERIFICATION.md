@@ -42,6 +42,12 @@ unverified:
 | 04-04 / 04-05 / 04-10 backstop truths | HUMAN (non-inferable) | see `unverified` — spec doesn't settle these; nothing pins them down. |
 
 ## Human checks
+- [x] **REQ-06 — RE-CONFIRMED PASS (2026-09-12, erased simulator, after today's three fixes).**
+  Seeded reference 37.33260,-122.03032; a 600 m interpolated route produced exactly ONE row at
+  37.33711 = **502 m** — the first update at/past the 500 m gate, matching 2026-09-11's 500.8 m.
+  Row read "Failed: add your webhook URL" (no credentials on that device), which does not affect
+  what it proves: the trigger fired, the gate held, and the label geocoded to "Cupertino" on a
+  real send path. Original 2026-09-11 entry follows.
 - [x] **REQ-06 — PASS (2026-09-11, simulator, machine-driven, both halves).** Driven with
   `xcrun simctl location start --speed=20 --distance=50` (real interpolated movement, NOT a
   teleport). Origin 40.05590,17.99250 → 520 m north: exactly ONE new row appeared, at
@@ -55,6 +61,16 @@ unverified:
   the simulator.** A teleport (Features ▸ Location ▸ Custom) produces nothing; `location start`
   with interpolated waypoints works. Fixtures in `scripts/gpx/`.
 - [ ] REQ-07 on device — simulated visit arrival, backgrounded → exactly one ping shown as Arrival.
+- [ ] **REQ-08 — RE-RUN 2026-09-12 on an ERASED simulator: DOES NOT FIRE, and the environment is
+  now ruled out as the cause.** Three runs, one install, one grant: significant-change fired
+  (12:47); geofence-only did not (12:51); both-on produced exactly ONE row at 502 m north of the
+  seeded reference (12:52). That 502 m is a movement WITNESS — the route really moved the device,
+  so it crossed the 150 m radius ~350 m before the point that pinged, and nothing fired for it.
+  Significant-change delivering on the same device minutes apart rules out dirty simulator state
+  and authorization. Two defects were also found and fixed by driving this (debug/001: no
+  `CLServiceSession` on an already-Always cold relaunch; debug/002: a stale surviving region was
+  never re-centred). Remaining unknown: the runs carried no probes, so region ARMING was inferred,
+  not observed. Full evidence in `.planning/debug/002-*.md`. **Superseded notes follow.**
 - [ ] **REQ-08 cold relaunch — RE-RUN DONE 2026-09-12, still NOT verified; now blocked on real
   hardware.** Two further defects were found and fixed by driving it (debug/001: no
   `CLServiceSession` on an already-Always cold relaunch; debug/002: a stale surviving region was

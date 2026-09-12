@@ -55,21 +55,47 @@ every arming pass re-registers — idempotent under the single fixed identifier,
 the region's inside/outside baseline, which could itself suppress an exit. A tolerance would be a
 new numeric constant (cf. `radiusMetres`'s backstop note) and is a ruling, not an improvisation.
 
+## Controlled re-test on an ERASED simulator (2026-09-12, decisive)
+`simctl erase` + one install + one grant removed the dirty-state confound that made H4
+untrustworthy. Three runs on that clean device, same build (clean HEAD, no probes), same grant:
+
+| Run | Config | Result |
+|-----|--------|--------|
+| 1 | significant-change only | **FIRED** — row at 12:47, `Cupertino`, 37.33260,-122.03032, "Failed: add your webhook URL" (no credentials configured; the trigger and the send path both ran). Reverse geocoding worked on a real send path, so D-15 is good. |
+| 2 | geofence only, `LastPing.json` seeded at 37.33260,-122.03032, 250 m route | **DID NOT FIRE** — "No pings yet" at 12:51. |
+| 3 | both on, same reference, 600 m route | **ONE row**, 12:52, 37.33711,-122.03032 = **502 m** north of the reference. |
+
+Run 3 is the one that settles it, because it carries its own movement witness: 502 m proves the
+route actually moved the device (runs 1-2 could not rule out `simctl location` being ignored --
+run 1's ping came from the default location at launch, not from the route). The device therefore
+crossed the 150 m radius roughly 350 m BEFORE the point that pinged, and nothing fired for it.
+The single row is significant-change's 500 m gate landing on the first update at/past 500 m --
+the same behaviour VERIFICATION measured at 500.8 m on 2026-09-11.
+
+So, with the confound removed and movement witnessed: **significant-change delivers on the
+simulator and the geofence does not.** H4's conclusion is restored, now with the control it
+previously lacked; H6 (dirty simulator state) was real but explains only the earlier
+significant-change silence, not the geofence's.
+
+`LastPing.json` did not advance in any run (no credentials ⇒ `.noCredentialsOrFix` ⇒
+`pingAndAdvance` returns before saving, which is correct). The first exit is still a fair test:
+the launch-time registration from the seeded file is what the device then left.
+
+**Not eliminated:** that the region failed to ARM in runs 2-3. These runs carried no probes, so
+arming was not observed -- only inferred from the debug/002 fix plus a seeded reference and no
+pre-existing region on an erased device. An instrumented run would close that, and is the one
+cheap thing left before blaming the platform.
+
 ## Resolution
-**H2 is fixed and that fix stands on its own evidence** - probe output plus a red-before/
-green-after unit test - independent of anything the simulator does or does not deliver.
+**H2 (stale region) is fixed** on probe output plus a red-before/green-after unit test.
 
-**The delivery question is NOT resolved and is no longer attributed to `CLMonitor`.** The control
-run (significant-change, PASSED yesterday, silent today) says the simulator stopped delivering
-wake-based location events generally. An earlier version of this file called H4 "confirmed
-(blocking)" and said events are not delivered on the simulator "for this app"; that
-over-attributed a general silence to one API and is retracted - see H4/H6.
+**REQ-08 is NOT verified and does not work on the simulator.** Four attempts across two
+simulator states, the last three on a freshly erased device with a witnessed 502 m of movement.
+Significant-change fired in the same conditions, on the same device, minutes apart -- so this is
+specific to the geofence path, not the environment and not location authorization.
 
-**Next cheapest step:** `xcrun simctl erase` a fresh iOS 26 device, install once, grant once, run
-ONE significant-change route. If that fires, simulator state was the problem and the geofence run
-should be repeated clean. If it does not, the simulator is not a usable oracle for REQ-06/07/08
-and all three need real hardware.
+**REQ-06 is re-confirmed PASS** after today's three fixes (502 m, clean device, witnessed).
 
-**For a personal-use install the real device IS the test.** Nothing here blocks shipping: both
-fixed defects make automatic triggers strictly more likely to arm, and neither can make anything
-worse than the shipped behaviour.
+**Next step is a real device, or one instrumented run** to prove/disprove arming in runs 2-3.
+For a personal-use install, significant-change is the working automatic path and the geofence is
+additive -- nothing here blocks shipping.
