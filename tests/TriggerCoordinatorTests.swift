@@ -344,6 +344,47 @@ struct TriggerCoordinatorTests {
         #expect(centre == seed)
     }
 
+    /// D-21 (2026-09-12). `.pinged(.failed)` is a ping the webhook never received AND nothing
+    /// holds -- the POST failed and the sink refused it. Until this test it advanced the reference
+    /// and re-armed the geofence exactly like `.pinged(.sent)`, so every send that failed in a
+    /// locked pocket (the queue file was sealed, see `PingQueueStoreTests`) moved "where the last
+    /// ping was" to a point the webhook never saw, and the next 500 m was measured from there.
+    /// Mirrors `aRateLimitedPingDoesNotAdvanceTheReference`: seed, fail far away, nothing moves.
+    /// A `.pinged(.queued)` DOES advance -- the disk holds it and the next drain delivers it --
+    /// which the second half pins so the guard cannot drift to "only `.sent` counts".
+    @Test
+    func aFailedPingDoesNotAdvanceTheReferenceButAQueuedOneDoes() async {
+        let seed = Self.coordinate(0, 0)
+        let far = Self.coordinate(600.0 / 111_320, 0)
+        let farther = Self.coordinate(1_200.0 / 111_320, 0)
+        let lastPing = InMemoryLastPingStore()
+        let (coordinator, _, geofence, pinger, _, _) = Self.makeCoordinator(
+            significantChangeEnabled: true, geofenceEnabled: true,
+            pingerScript: [.pinged(.sent), .pinged(.failed), .pinged(.queued)],
+            lastPing: lastPing)
+        await coordinator.start()
+
+        await coordinator.handleSignificantChange(Self.significantChangeReport(at: seed))
+        await coordinator.settled()
+        #expect(await coordinator.currentReference() == seed)
+
+        await coordinator.handleSignificantChange(Self.significantChangeReport(at: far))
+        await coordinator.settled()
+
+        #expect(await pinger.callCount == 2)
+        #expect(await coordinator.currentReference() == seed, "a failed ping must not move the reference")
+        #expect(await geofence.currentCentre() == seed, "a failed ping must not re-arm the geofence")
+        #expect(await lastPing.load() == seed, "a failed ping must not overwrite the durable last ping")
+
+        await coordinator.handleSignificantChange(Self.significantChangeReport(at: farther))
+        await coordinator.settled()
+
+        #expect(await pinger.callCount == 3)
+        #expect(await coordinator.currentReference() == farther, "a queued ping is held for delivery and does advance")
+        #expect(await geofence.currentCentre() == farther)
+        #expect(await lastPing.load() == farther)
+    }
+
     @Test
     func twoSimultaneousWakesProduceOnePingAndOneReference() async {
         let (coordinator, _, geofence, pinger, _, _) = Self.makeCoordinator(

@@ -10,6 +10,13 @@ import Foundation
 /// wearing a success label. Replaces `UnqueuedPingSink` at the composition root in 03-10; same
 /// protocol, no change to `PingSender`.
 struct DurablePingSink: PendingPingSink {
+    /// The sentence for a ping that arrived while the queue file was still sealed after a
+    /// restart. Public so a test can pin it by name (D-18's rule: a stated sentence with no test
+    /// drifts). Deliberately free of "tap": the only path that reaches it is an automatic trigger.
+    static let sealedQueueReason =
+        "Not kept: the device has not been unlocked since it restarted, so the offline queue "
+        + "could not be opened. Unlock the device once and automatic pings will be saved again."
+
     let store: any PingQueueStoring
     let policy: PingRetryPolicy
     /// Injected rather than read from `Date()` directly, so the entry's timestamps are testable
@@ -38,12 +45,13 @@ struct DurablePingSink: PendingPingSink {
                 reason: "The offline queue is full (200 pings waiting), so this ping was not "
                     + "saved. Send or clear the waiting pings, then tap I'm here again.")
         } catch PingQueueError.unavailable {
-            // Locked device: the queue is intact but cannot be opened, so this ping genuinely was
-            // not saved and must be refused honestly -- but the sentence must not blame the queue
-            // or send the user to fix anything, because nothing is broken.
-            return .notQueued(
-                reason: "This ping could not be saved while the device is locked. Unlock the "
-                    + "device and tap I'm here again.")
+            // The queue is intact but still sealed: under D-21's protection class that happens
+            // only between a restart and the first unlock, and the ping reaching here is an
+            // AUTOMATIC one (a person cannot tap before unlocking). So the sentence must not say
+            // "tap I'm here again" -- nobody tapped -- and must not blame the queue or send the
+            // user to fix anything, because nothing is broken. It says what happened and the one
+            // thing that changes it: unlocking once.
+            return .notQueued(reason: Self.sealedQueueReason)
         } catch PingQueueError.unreadable {
             return .notQueued(
                 reason: "The offline queue file could not be read and has been set aside, so "

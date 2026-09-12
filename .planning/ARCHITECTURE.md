@@ -38,8 +38,12 @@
 - Feature folders under `src/` (`Settings/`, `Ping/`, `Triggers/`, `Queue/`) plus `Core/` for Keychain/payload/transport.
 - Offline queue is a `Codable` array in Application Support via `FileManager` — no SwiftData, no Core Data. The file is the durability mechanism; drain on every wake with a plain `URLSession`. `URLSessionConfiguration.background` is not the primary path.
 - **The queue file is a sanctioned store for coordinates** (D-12, 2026-09-10). Narrow: written with
-  `.completeFileProtectionUnlessOpen`, excluded from backups (`isExcludedFromBackup`), each entry
-  deleted the moment it is delivered, and never copied to another DURABLE store. A queue that keeps
+  `.completeFileProtectionUntilFirstUserAuthentication` (**amended by D-21, 2026-09-12** — it was
+  `.completeFileProtectionUnlessOpen`, which sealed the file on every lock, so a send that failed in a
+  locked pocket could not be queued and was dropped, and every background drain gave up; the queue
+  now shares D-16's class and is openable from the first unlock after boot until the next restart),
+  excluded from backups (`isExcludedFromBackup`), each entry deleted the moment it is delivered, and
+  never copied to another DURABLE store. A queue that keeps
   delivered pings is a location history, which is not what this is for.
   **Narrowed by D-17 (2026-09-11):** reading queue entries into the in-memory, session-only history
   so a relaunch can show what is still pending is display, not storage — it creates no second
@@ -54,13 +58,14 @@
   - **Exactly ONE coordinate, overwritten in place, never appended.** A single overwritten point is
     not a location history; a list of them is, and that is what D-12 exists to forbid.
   - Excluded from backups (`isExcludedFromBackup`), same as the queue.
-  - Protection class `.completeUntilFirstUserAuthentication`, **deliberately weaker than the
-    queue's** `.completeFileProtectionUnlessOpen`. A geofence exit fires while the phone is locked
-    in a pocket, which is the whole point of the feature; under complete protection the write would
-    fail on exactly that wake and the region would never re-register. Phase 03 already shipped the
-    inverse of this bug — a locked device could not open the queue and the drain reported the pings
-    undeliverable. The trade is stated rather than hidden: this file survives a locked screen, so it
-    is readable after first unlock following boot.
+  - Protection class `.completeUntilFirstUserAuthentication`. When chosen it was **deliberately
+    weaker than the queue's** then-`.completeFileProtectionUnlessOpen`; since D-21 the queue shares
+    it. A geofence exit fires while the phone is locked in a pocket, which is the whole point of the
+    feature; under complete protection the write would fail on exactly that wake and the region
+    would never re-register. Phase 03 already shipped the inverse of this bug — a locked device
+    could not open the queue and the drain reported the pings undeliverable — and D-21 closed it
+    the same way. The trade is stated rather than hidden: both files survive a locked screen, so
+    they are readable after first unlock following boot.
   - Deleted when every trigger is disabled — if nothing is watching, nothing needs the position.
 - All location work sits in one actor-isolated coordinator; views never touch `CLLocationManager`.
 

@@ -164,16 +164,55 @@ struct PingQueueStoreTests {
 
     /// The failure this separates from corruption, found by the security lens at PR review.
     ///
-    /// The queue file is stored `.completeFileProtectionUnlessOpen`, so a closed file cannot be
-    /// opened while the device is locked — and `BGAppRefreshTask` fires exactly then. The read and
-    /// the decode once shared one `catch`, so a locked-device read renamed the ENTIRE pending
-    /// queue to `PingQueue-unreadable.json` and told the user the pings "cannot be delivered":
-    /// SC-02's one promise broken by the durability mechanism, because the phone was in a pocket.
+    /// A data-protected file cannot be opened while it is sealed — under D-21's
+    /// `.completeFileProtectionUntilFirstUserAuthentication` that is a background wake between a
+    /// restart and the first unlock; under the earlier `.completeFileProtectionUnlessOpen` it was
+    /// EVERY locked wake, and `BGAppRefreshTask` fires exactly then. The read and the decode once
+    /// shared one `catch`, so a locked-device read renamed the ENTIRE pending queue to
+    /// `PingQueue-unreadable.json` and told the user the pings "cannot be delivered": SC-02's one
+    /// promise broken by the durability mechanism, because the phone was in a pocket.
     ///
-    /// `chmod 000` stands in for the locked-device read here — the simulator does not enforce data
+    /// `chmod 000` stands in for the sealed-file read here — the simulator does not enforce data
     /// protection, so an unreadable-by-permissions file is the honest local analogue of an
     /// unreadable-by-encryption one. What is pinned is the BRANCH: a read that fails must throw
     /// `.unavailable`, move nothing, and leave the queue exactly where it was.
+    /// D-21 (2026-09-12): the queue must be writable and readable from a locked pocket, because
+    /// that is where every automatic trigger fires. `.completeFileProtectionUnlessOpen` sealed the
+    /// file on every lock, so a send that failed offline could not be queued and was dropped, and
+    /// every background drain gave up. The class is now `.completeFileProtectionUntilFirstUser
+    /// Authentication`, the same one `FileLastPingStore` uses (D-16), pinned here the same way
+    /// `LastPingStoreTests.theLastPingFileCarriesTheStatedProtectionClass` pins that one: read the
+    /// runtime attribute back when the simulator surfaces it (checked against a CONTROL file
+    /// written with no protection option), otherwise assert the named seam `write` actually uses.
+    /// Both branches also assert the OLD class is gone — a regression to it would ship green
+    /// under a contains-only check.
+    @Test
+    func theQueueFileCarriesTheStatedProtectionClass() async throws {
+        let (directory, teardown) = Self.throwawayDirectory()
+        defer { teardown() }
+
+        let store = FilePingQueueStore(directory: directory)
+        try await store.append(Self.makeQueuedPing())
+        let fileURL = directory.appendingPathComponent("PingQueue.json")
+        let attributes = try FileManager.default.attributesOfItem(atPath: fileURL.path)
+        let protectionClass = attributes[.protectionKey] as? FileProtectionType
+
+        let controlURL = directory.appendingPathComponent("control.txt")
+        try Data("control".utf8).write(to: controlURL)
+        let controlAttributes = try FileManager.default.attributesOfItem(atPath: controlURL.path)
+        let controlReportsAClass = (controlAttributes[.protectionKey] as? FileProtectionType) != nil
+
+        #expect(
+            FilePingQueueStore.writeOptions.contains(
+                .completeFileProtectionUntilFirstUserAuthentication))
+        #expect(!FilePingQueueStore.writeOptions.contains(.completeFileProtectionUnlessOpen))
+        #expect(!FilePingQueueStore.writeOptions.contains(.completeFileProtection))
+
+        if protectionClass != nil || controlReportsAClass {
+            #expect(protectionClass == .completeUntilFirstUserAuthentication)
+        }
+    }
+
     @Test
     func aFileThatCannotBeReadIsNotTreatedAsCorruptAndIsLeftAlone() async throws {
         let (directory, teardown) = Self.throwawayDirectory()
