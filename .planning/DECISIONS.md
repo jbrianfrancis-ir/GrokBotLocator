@@ -1,5 +1,47 @@
 # Decisions
 
+## 2026-09-12 · checkpoint-decision (D-20) — bundle id renamed to clear a team collision
+- **asked**: With the paid team's Development cert renewed and Xcode signed in, Apple refused to
+  register the App ID: "the app identifier com.bfrancis.grokbotlocator cannot be registered to
+  your development team because it is not available." Cause is on record — the 2026-09-10 evidence
+  entry notes phase 01's device test had Xcode issue a 7-day profile for that exact id under the
+  FREE personal team, and an App ID is globally unique, so the paid team could not claim it.
+  Free the identifier from the personal team, or rename?
+- **answered**: RENAME. `PRODUCT_BUNDLE_IDENTIFIER = com.bfrancis.grokbotlocator.trip`, chosen for
+  speed with the trip deadline in view — no portal surgery, no dependence on Apple releasing an
+  identifier promptly, and no need to work out which of two personal teams held it.
+- **note**: the rename cost one line in the gitignored `Signing.xcconfig` and touched NO tracked
+  file, because ARCHITECTURE's ban on a literal bundle id in `src/`/`project.yml`/`scripts/` meant
+  nothing hardcoded it. Verified before changing, not assumed: `grep` found zero occurrences in
+  shipping code or config, and both derived identifiers follow the variable —
+  `keychain-access-groups = $(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)` and
+  `BGTaskSchedulerPermittedIdentifiers = $(PRODUCT_BUNDLE_IDENTIFIER).queue-drain`. Both resolved
+  correctly in the SIGNED build. **This is the rule paying for itself**: the same rename against a
+  hardcoded id would have been a multi-file edit with a silent-breakage risk in the background-task
+  registration.
+  Consequences accepted: iOS treats this as a different app, so anything saved under the old id
+  does not carry over (nothing on the device mattered), and this is now the permanent id including
+  for TestFlight. The original identifier stays registered to the personal team; freeing it later
+  is optional cleanup, not required work.
+- **by**: Brian Francis (chose "Rename it" at the gate)
+- **at**: phase 04 (verification) · amends only the gitignored Signing.xcconfig
+
+## 2026-09-12 · evidence — DEVICE INSTALL SUCCEEDED, 365-day profile
+- **asked**: N/A — closes the blocker logged in the 2026-09-12 signing entry.
+- **answered**: Installed on the iPhone 16 Pro Max (iOS 26.6.2) as
+  `com.bfrancis.grokbotlocator.trip`. Release build, signed by the PAID team's renewed Apple
+  Development cert, profile "iOS Team Provisioning Profile: *" **created 2026-09-12, expires
+  2027-09-12 — 365 days**. D-03's stranded-mid-trip risk is closed: the 7-day free-team profile is
+  no longer in play.
+  Verified in the signed artefact rather than inferred: `application-identifier` carries the real
+  team prefix (so Keychain works on device), `BGTaskSchedulerPermittedIdentifiers` resolved to
+  `...trip.queue-drain`, and both version keys are present for TestFlight.
+  Getting here also surfaced a three-phase-old defect: `CODE_SIGN_IDENTITY: "-"` as a TARGET
+  setting overrode `Signing.xcconfig` and disabled development signing in Xcode's editor, so the
+  committed config could not build for a device at all. Now SDK-conditional.
+- **by**: Claude (build and verification); the Apple ID sign-in and cert renewal were the human's
+- **at**: phase 04 (verification)
+
 ## 2026-09-12 · evidence — the paid team is already configured; its Development cert has EXPIRED
 - **asked**: N/A — user asked to "switch the signing config to the paid team". Nothing to switch:
   `Signing.xcconfig` has held the paid work team since D-03 (2026-09-09 19:30). The real blocker
