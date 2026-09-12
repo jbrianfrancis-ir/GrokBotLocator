@@ -30,6 +30,10 @@ struct TriggerCoordinatorTests {
         private(set) var visitsStartCount = 0
         private(set) var visitsStopCount = 0
         private(set) var requestAlwaysCount = 0
+        /// Counted separately from `requestAlwaysCount` because the two are now different
+        /// events -- holding the session vs. prompting -- and debug/001 was precisely the case
+        /// where the second happens and the first does not.
+        private(set) var beginAlwaysSessionCount = 0
         private var authorization: CLAuthorizationStatus
 
         private var significantChangeHandler: (@Sendable (SignificantChangeReport) async -> Void)?
@@ -71,6 +75,11 @@ struct TriggerCoordinatorTests {
         func currentAuthorization() async -> CLAuthorizationStatus {
             await Task.yield()
             return authorization
+        }
+
+        func beginAlwaysSession() async {
+            await Task.yield()
+            beginAlwaysSessionCount += 1
         }
 
         func requestAlways() async -> CLAuthorizationStatus {
@@ -200,12 +209,13 @@ struct TriggerCoordinatorTests {
         pingerScript: [AutomaticPingResult] = [],
         minimumIntervalSeconds: TimeInterval = PingRateLimiter.defaultInterval,
         rateLimiter: any PingRateLimiting = PingRateLimiter(),
-        lastPing: any LastPingStoring = InMemoryLastPingStore()
+        lastPing: any LastPingStoring = InMemoryLastPingStore(),
+        authorization: CLAuthorizationStatus = .authorizedWhenInUse
     ) -> (
         coordinator: TriggerCoordinator, source: FakeTriggerSource, geofence: InMemoryGeofence,
         pinger: CountingPinger, counter: DrainCounter, store: FakeSettingsStore
     ) {
-        let source = FakeTriggerSource()
+        let source = FakeTriggerSource(authorization: authorization)
         let geofence = InMemoryGeofence()
         let pinger = CountingPinger(scriptedResults: pingerScript)
         let fixes = FakeFixProvider(result: fixResult)
@@ -373,6 +383,44 @@ struct TriggerCoordinatorTests {
         }
     }
 
+    /// REQ-08's runtime gap (debug/001): a cold relaunch with Always ALREADY granted must still
+    /// reach the one foreground touchpoint that starts holding a `CLServiceSession`
+    /// (`LocationDelegateProxy.requestAlways()`, the sole assignment site for that session).
+    /// Skipping it because the status is already `.authorizedAlways` leaves the process holding
+    /// no session at all, and RESEARCH Q2/Q5 (WWDC24) is explicit that "Always authorization will
+    /// only be effective when you hold one of these" -- so the region arms, the event loop spins,
+    /// and the OS never delivers an exit to a backgrounded app.
+    ///
+    /// This is the case the rest of this suite structurally could not see: every other test
+    /// starts from the fake's `.authorizedWhenInUse` default, which always takes the request
+    /// branch.
+    @Test
+    func startingAlreadyAlwaysStillHoldsTheAlwaysSession() async {
+        let (coordinator, source, _, _, _, _) = Self.makeCoordinator(
+            geofenceEnabled: true, authorization: .authorizedAlways)
+
+        await coordinator.start()
+
+        #expect(await source.beginAlwaysSessionCount == 1)
+        // Nothing to prompt for -- the grant is already there. The session is the missing piece,
+        // not the permission, which is why asserting on the request count alone would have kept
+        // passing on the broken code for the wrong reason.
+        #expect(await source.requestAlwaysCount == 0)
+    }
+
+    /// The other half of the split: at When-In-Use an arming pass must do BOTH -- hold the
+    /// session and ask for the upgrade. This is the path every other test in this suite takes.
+    @Test
+    func startingAtWhenInUseBothHoldsTheSessionAndRequestsAlways() async {
+        let (coordinator, source, _, _, _, _) = Self.makeCoordinator(
+            geofenceEnabled: true, authorization: .authorizedWhenInUse)
+
+        await coordinator.start()
+
+        #expect(await source.beginAlwaysSessionCount == 1)
+        #expect(await source.requestAlwaysCount == 1)
+    }
+
     @Test
     func disabledTriggersAreNotArmedAndEnablingArmsOnlyThatOne() async {
         let (coordinator, source, _, _, _, _) = Self.makeCoordinator()
@@ -381,6 +429,9 @@ struct TriggerCoordinatorTests {
         #expect(await source.significantChangeStartCount == 0)
         #expect(await source.visitsStartCount == 0)
         #expect(await source.requestAlwaysCount == 0)
+        // REQ-10 covers the session too, not just the prompt: all three off means the app holds
+        // no Always session at all.
+        #expect(await source.beginAlwaysSessionCount == 0)
 
         var visitsOn = TriggerSettings.initial
         visitsOn.visitsEnabled = true
@@ -389,6 +440,7 @@ struct TriggerCoordinatorTests {
         #expect(await source.visitsStartCount == 1)
         #expect(await source.significantChangeStartCount == 0)
         #expect(await source.requestAlwaysCount == 1)
+        #expect(await source.beginAlwaysSessionCount == 1)
     }
 
     @Test
