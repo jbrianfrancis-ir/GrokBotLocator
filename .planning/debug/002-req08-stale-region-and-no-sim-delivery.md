@@ -22,7 +22,8 @@ temporary `print` probes (reverted; not committed):
 | H1 | debug/001's session fix works | confirmed | Probe: `beginAlwaysSession called` on the already-Always cold relaunch. |
 | H2 | `applySettings` never corrects a region that survived a relaunch centred somewhere else | confirmed | Probe: `centre=37.33527476 reference=37.3388838` (~400 m apart) → `DID NOT register`. `centre == nil` treated "a region exists" as "the right region exists". A region you are already outside of never produces an exit TRANSITION, so REQ-08 could never fire again for that region's life. FIXED. |
 | H3 | Event delivery needs `add` BEFORE iterating `monitor.events` | refuted | Swapped `start()` so `applySettings` (and its `monitor.add`) ran before `startObserving`. Probe confirmed the new order (`monitor.add done` then `events loop STARTED`). Still ZERO events after 250 m. Order swap reverted — it changed nothing and is unproven. |
-| H4 | `CLMonitor` does not deliver region events to this app on this simulator | confirmed (blocking) | With the region correctly armed at the reference and `events loop STARTED` logged, 250 m AND a 2 km / 67 s continuous route produced ZERO `PROBE: EVENT` lines, in BOTH orderings. The events loop never threw either (no `events loop THREW`). |
+| H4 | `CLMonitor` does not deliver region events to this app on this simulator | **DOWNGRADED - do not trust** | With the region armed at the reference and `events loop STARTED` logged, 250 m AND a 2 km / 67 s route produced ZERO `PROBE: EVENT` lines in both orderings, and the loop never threw. BUT the control run invalidates the attribution: **significant-change, recorded PASSED on this same simulator on 2026-09-11, also fired nothing today** - 520 m past the 500 m gate, geofence off, `location-always` re-granted after the reinstalls, twice. So NO wake-based location trigger is firing on this simulator right now, and the silence cannot be pinned on `CLMonitor`. Cause environmental/unknown. |
+| H6 | The simulator (or its location/authorization state) stopped delivering wake-based location events today | untested - most likely explanation | The control above. Not yet eliminated: privacy grants wiped by repeated `simctl install`; a stuck `CLServiceSession`; simulator location state left dirty by many `location start` runs; runtime 26.5 behaviour. A fresh `simctl erase` + one clean run would test it cheaply. |
 | H5 | `monitor.add` does not persist on this simulator | confirmed | `Library/CoreLocation/GrokBotLocator/GrokBotLocatorTriggers.monitor` mtime stayed `12:04:02` across several successful `monitor.add` calls at 12:28–12:32, and `currentCentre()` kept reading back the 12:04-era 37.33527476 after a fresh launch had added 37.3388838. |
 
 <!-- Status: untested | testing | refuted | confirmed -->
@@ -55,6 +56,20 @@ the region's inside/outside baseline, which could itself suppress an exit. A tol
 new numeric constant (cf. `radiusMetres`'s backstop note) and is a ruling, not an improvisation.
 
 ## Resolution
-H2 fixed. H4/H5 are the open blocker: REQ-08 cannot be closed on this simulator by any app-side
-change. Needs a real device — which is what VERIFICATION.md's human check already said for the
-terminated-app wake, now extended to foreground delivery as well.
+**H2 is fixed and that fix stands on its own evidence** - probe output plus a red-before/
+green-after unit test - independent of anything the simulator does or does not deliver.
+
+**The delivery question is NOT resolved and is no longer attributed to `CLMonitor`.** The control
+run (significant-change, PASSED yesterday, silent today) says the simulator stopped delivering
+wake-based location events generally. An earlier version of this file called H4 "confirmed
+(blocking)" and said events are not delivered on the simulator "for this app"; that
+over-attributed a general silence to one API and is retracted - see H4/H6.
+
+**Next cheapest step:** `xcrun simctl erase` a fresh iOS 26 device, install once, grant once, run
+ONE significant-change route. If that fires, simulator state was the problem and the geofence run
+should be repeated clean. If it does not, the simulator is not a usable oracle for REQ-06/07/08
+and all three need real hardware.
+
+**For a personal-use install the real device IS the test.** Nothing here blocks shipping: both
+fixed defects make automatic triggers strictly more likely to arm, and neither can make anything
+worse than the shipped behaviour.
