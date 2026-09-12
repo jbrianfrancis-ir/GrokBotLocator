@@ -130,7 +130,7 @@ struct DurablePingSinkTests {
         #expect(!lowered.contains("i'm here"))
         #expect(lowered.contains("unlock"))
         #expect(!lowered.contains("locked."), "the old 'while the device is locked' framing is gone")
-        #expect(store.appended.isEmpty)
+        #expect(store.storedEntries.isEmpty)
     }
 
     @Test
