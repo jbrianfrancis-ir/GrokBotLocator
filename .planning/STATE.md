@@ -6,7 +6,7 @@ Last: 2026-09-12 — D-21: queue file was sealed while locked, pocket pings drop
   to until-first-unlock, `.failed` no longer advances, sentence fixed. Smoke now GREEN: 275
   tests, 29 suites. D-21's own test named a member the fake lacked, so it had never compiled.
 Next: set the webhook in Settings on the phone, tap "I'm here", then walk 500 m to
-  confirm an automatic ping lands. PR #5 open.
+  confirm an automatic ping lands. D-21 + test fix still need a PR.
 ## Gate
 type: human-action
 asked: On the device with a 365-day profile. Remaining device checks are REQ-07 visits,
@@ -29,7 +29,8 @@ Signature: rule2:phase04:plans15/15:verifhuman
   the fence armed and computing (Inside)=>(Outside), but sCount stays 0 so it never delivers.
 - D-17/D-19 want pinning tests (D-18 done). 2 latent findings in TODOS.md.
 ## Session
-Stopped: smoke fix committed on claude/ping-while-locked-fyn2q0, unpushed. PR #5 open.
+Stopped: PR #5 MERGED. D-21 + smoke fix sit on claude/ping-while-locked-fyn2q0,
+  2 commits off main, no PR open. Newest unpushed.
 Resume: app work is DONE for REQ-06; the only thing between here and a working 2-week
   tracker is a signing cert (Blockers). Sim needs `simctl location start` with lat,lon
   pairs, not a teleport; read locationd via `simctl spawn <udid> log show` before theorising.
