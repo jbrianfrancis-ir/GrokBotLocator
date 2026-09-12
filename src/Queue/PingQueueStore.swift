@@ -7,9 +7,20 @@ import Foundation
 /// sanctioned only under four narrow conditions, quoted here so nothing that reads this file
 /// mistakes it for general-purpose storage:
 ///
-/// > written with `.completeFileProtectionUnlessOpen`, excluded from backups
+/// > written with `.completeFileProtectionUntilFirstUserAuthentication`, excluded from backups
 /// > (`isExcludedFromBackup`), each entry deleted the moment it is delivered, and never copied
 /// > anywhere else.
+///
+/// The protection class was `.completeFileProtectionUnlessOpen` until D-21 (2026-09-12). That
+/// class refuses to open an existing file while the device is locked, and a locked device is
+/// precisely when an automatic trigger fires (REQ-06/07/08): every send that failed in a pocket
+/// could not be queued, so it was dropped as a permanent failure, and every background drain
+/// found the queue unopenable and gave up. Phase 03's fix (`PingQueueError.unavailable`) only
+/// stopped a locked read from DESTROYING the queue; it never made the queue usable while locked.
+/// `.completeFileProtectionUntilFirstUserAuthentication` -- the same class D-16 chose for
+/// `LastPingStore.swift`, for the same reason -- keeps the file openable from the first unlock
+/// after boot until the next restart. The trade, stated rather than hidden: queued coordinates
+/// are decryptable at rest whenever the phone has been unlocked once since boot.
 ///
 /// A queue that keeps delivered pings is a location history, which is not what this is for.
 /// Nothing outside `FilePingQueueStore` may write a `QueuedPing` to disk, and no entry read from
@@ -63,14 +74,15 @@ enum PingQueueError: Error, Equatable {
     case unreadable
 
     /// The queue file exists and is almost certainly intact, but the bytes could not be read
-    /// right now. The overwhelmingly likely cause is the protection class this file is
-    /// deliberately stored under: `.completeFileProtectionUnlessOpen` means a closed file cannot
-    /// be opened while the device is locked, and a `BGAppRefreshTask` wake is exactly when the
-    /// device is locked. NOTHING is moved aside and nothing is lost — the caller must treat this
-    /// as "not now", drain nothing, report nothing, and try again after the next unlock.
+    /// right now. Under `.completeFileProtectionUntilFirstUserAuthentication` (D-21) the one
+    /// expected cause is a background wake after a restart, BEFORE the user has unlocked the
+    /// device for the first time: the file is still sealed until that first unlock. NOTHING is
+    /// moved aside and nothing is lost — the caller must treat this as "not now", drain nothing,
+    /// report nothing, and try again after the next unlock.
     ///
     /// Separating this from `.unreadable` is not a nicety. While both shared one `catch`, a
-    /// background wake on a locked phone renamed the entire pending queue to
+    /// background wake on a locked phone (then under `.completeFileProtectionUnlessOpen`, which
+    /// sealed the file on EVERY lock) renamed the entire pending queue to
     /// `PingQueue-unreadable.json` and told the user their pings "cannot be delivered" — SC-02's
     /// one promise, broken by the durability mechanism itself, on the most ordinary path there is.
     case unavailable
@@ -115,7 +127,7 @@ protocol PingQueueStoring: Sendable {
 /// connectivity edge, background refresh, manual launch) can never interleave a
 /// read-modify-write and race each other's view of the file.
 ///
-/// Every write goes through `write(_:)`, which applies BOTH `.completeFileProtectionUnlessOpen`
+/// Every write goes through `write(_:)`, which applies BOTH `Self.writeOptions`' protection class
 /// and `isExcludedFromBackup` every single time -- an atomic replace recreates the file, and a
 /// recreated file does not inherit the previous file's resource values, so re-asserting both on
 /// every write is the only way either protection reliably survives past the first write.
@@ -170,10 +182,11 @@ actor FilePingQueueStore: PingQueueStoring {
         }
         // The read and the decode are deliberately separate `do` blocks. They used to share one
         // `catch`, which meant ANY failure to open the file was treated as corruption and moved
-        // the whole queue aside. This file is stored `.completeFileProtectionUnlessOpen`, so a
-        // closed file cannot be opened while the device is locked -- and the background drain
-        // runs precisely then. `fileExists` still succeeds (the directory entry is readable; only
-        // the content is encrypted), so the guard above passes and the read is what throws.
+        // the whole queue aside. A data-protected file cannot be opened while it is sealed
+        // (until the first unlock after boot, under this file's class -- see `writeOptions`),
+        // and a background wake can land there. `fileExists` still succeeds (the directory entry
+        // is readable; only the content is encrypted), so the guard above passes and the read is
+        // what throws.
         let data: Data
         do {
             data = try Data(contentsOf: fileURL)
@@ -223,16 +236,25 @@ actor FilePingQueueStore: PingQueueStoring {
         try FileManager.default.moveItem(at: fileURL, to: unreadableFileURL)
     }
 
+    /// Pinned as a named seam, not an inline literal at the call site, so a test can assert
+    /// against the SAME symbol `write` actually uses (`PingQueueStoreTests
+    /// .theQueueFileCarriesTheStatedProtectionClass`), exactly as `FileLastPingStore.writeOptions`
+    /// is pinned. `.completeFileProtectionUntilFirstUserAuthentication` is D-21's class -- see
+    /// this file's header for the trade it makes and why `.completeFileProtectionUnlessOpen` was
+    /// wrong for a queue that has to accept writes from a locked pocket.
+    static let writeOptions: Data.WritingOptions = [
+        .atomic, .completeFileProtectionUntilFirstUserAuthentication,
+    ]
+
     /// The only place this file is ever written. Both protections are reasserted on every call:
-    /// `.completeFileProtectionUnlessOpen` so the coordinates in it are encrypted at rest except
-    /// while the app is actually reading or writing them, and `isExcludedFromBackup` so they
-    /// never leave the device in an iCloud or iTunes backup. Neither is optional and neither is
-    /// applied only once.
+    /// `Self.writeOptions`' protection class so the coordinates in it are encrypted at rest from
+    /// boot until the first unlock, and `isExcludedFromBackup` so they never leave the device in
+    /// an iCloud or iTunes backup. Neither is optional and neither is applied only once.
     private func write(_ pings: [QueuedPing]) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
         let data = try JSONEncoder().encode(pings)
-        try data.write(to: fileURL, options: [.atomic, .completeFileProtectionUnlessOpen])
+        try data.write(to: fileURL, options: Self.writeOptions)
 
         var excludedURL = fileURL
         var resourceValues = URLResourceValues()

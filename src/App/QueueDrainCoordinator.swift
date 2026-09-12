@@ -89,9 +89,10 @@ final class QueueDrainCoordinator {
 
         guard let queued = try? await store.load() else {
             // The flag is set BEFORE the await so two concurrent launches cannot both hydrate,
-            // but a failed load must not burn the session's one attempt: a locked-device launch
-            // throws `.unavailable` here, and leaving `hasHydrated` set meant the rows never came
-            // back at all until the app was relaunched. The queue itself is intact either way.
+            // but a failed load must not burn the session's one attempt: a launch before the
+            // first unlock after a restart throws `.unavailable` here, and leaving `hasHydrated`
+            // set meant the rows never came back at all until the app was relaunched. The queue
+            // itself is intact either way.
             hasHydrated = false
             return
         }

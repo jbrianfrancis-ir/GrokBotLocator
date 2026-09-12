@@ -210,16 +210,25 @@ if [[ -n "$NETWORK_IMPORT_HITS" ]]; then
     exit 1
 fi
 
-echo "==> queue-protection guard: ${QUEUE_STORE} applies both completeFileProtectionUnlessOpen and isExcludedFromBackup on non-comment lines"
+echo "==> queue-protection guard: ${QUEUE_STORE} applies both completeFileProtectionUntilFirstUserAuthentication and isExcludedFromBackup on non-comment lines, and never completeFileProtectionUnlessOpen"
 
 # A whole-file presence grep counts comment text (.planning/LEARNINGS.md: a phase-01 guard read
 # 5 where the answer was 1). Strip comment lines from THIS file's own hits before checking
 # either protection is actually applied in code, not just described in the header doc comment.
-QUEUE_STORE_NONCOMMENT_HITS=$(grep -nE 'completeFileProtectionUnlessOpen|isExcludedFromBackup' "$QUEUE_STORE" 2>/dev/null \
+# D-21 (2026-09-12) moved the queue from completeFileProtectionUnlessOpen -- which sealed the file
+# on every lock, so a pocket ping that failed offline could not be queued -- to D-16's class. The
+# old class is now checked for by ABSENCE on non-comment lines: reintroducing it is the bug.
+QUEUE_STORE_NONCOMMENT_HITS=$(grep -nE 'completeFileProtectionUnlessOpen|completeFileProtectionUntilFirstUserAuthentication|isExcludedFromBackup' "$QUEUE_STORE" 2>/dev/null \
     | grep -vE '^[0-9]+: *(///|//|\*)' || true)
 
-if ! echo "$QUEUE_STORE_NONCOMMENT_HITS" | grep -q 'completeFileProtectionUnlessOpen'; then
-    echo "queue-protection guard failed -- ${QUEUE_STORE} does not apply .completeFileProtectionUnlessOpen on a non-comment line (D-12 sanctioned the file only as protected; losing this voids the exception):" >&2
+if ! echo "$QUEUE_STORE_NONCOMMENT_HITS" | grep -q 'completeFileProtectionUntilFirstUserAuthentication'; then
+    echo "queue-protection guard failed -- ${QUEUE_STORE} does not apply .completeFileProtectionUntilFirstUserAuthentication on a non-comment line (D-12 as amended by D-21 sanctioned the file only as protected; losing this voids the exception):" >&2
+    exit 1
+fi
+
+if echo "$QUEUE_STORE_NONCOMMENT_HITS" | grep -q 'completeFileProtectionUnlessOpen'; then
+    echo "queue-protection guard failed -- ${QUEUE_STORE} applies .completeFileProtectionUnlessOpen on a non-comment line; D-21 moved the queue off that class because it seals the file on every lock and an automatic ping from a locked pocket could not be queued:" >&2
+    echo "$QUEUE_STORE_NONCOMMENT_HITS" | grep 'completeFileProtectionUnlessOpen' >&2
     exit 1
 fi
 
