@@ -92,7 +92,7 @@ struct DurablePingSinkTests {
                 == PingRetryPolicy.standard.nextAttemptDate(afterAttempts: 1, now: Self.fixedNow))
     }
 
-    @Test(arguments: [PingQueueError.full, PingQueueError.unreadable])
+    @Test(arguments: [PingQueueError.full, PingQueueError.unreadable, PingQueueError.unavailable])
     func aStoreRefusalBecomesANotQueuedSentence(_ error: PingQueueError) async throws {
         let store = FakeQueueStore()
         store.errorToThrow = error
@@ -109,6 +109,28 @@ struct DurablePingSinkTests {
         #expect(!reason.contains("https"))
         #expect(!reason.contains("Error"))
         #expect(!reason.contains("test-sender-key"))
+    }
+
+    /// D-21: `.unavailable` now means the queue file is still sealed between a restart and the
+    /// first unlock, and the only ping that can arrive then is an AUTOMATIC one — nobody tapped.
+    /// The sentence used to read "Unlock the device and tap I'm here again", a manual-tap remedy
+    /// shown on a row for a ping the user never initiated. Pinned by name (D-18's rule) and by
+    /// content: it must not ask for a tap, and it must still say what happened and what changes it.
+    @Test
+    func aSealedQueueSentenceDoesNotAskForATap() async throws {
+        let store = FakeQueueStore()
+        store.errorToThrow = PingQueueError.unavailable
+        let sink = Self.makeSink(store: store)
+
+        let outcome = await sink.enqueue(Self.payload, reason: "connection lost")
+
+        #expect(outcome == .notQueued(reason: DurablePingSink.sealedQueueReason))
+        let lowered = DurablePingSink.sealedQueueReason.lowercased()
+        #expect(!lowered.contains("tap"))
+        #expect(!lowered.contains("i'm here"))
+        #expect(lowered.contains("unlock"))
+        #expect(!lowered.contains("locked."), "the old 'while the device is locked' framing is gone")
+        #expect(store.appended.isEmpty)
     }
 
     @Test

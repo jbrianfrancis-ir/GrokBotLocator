@@ -78,10 +78,12 @@ actor PingQueueDrain {
         do {
             queue = try await store.load()
         } catch PingQueueError.unavailable {
-            // The device is locked, so the queue file cannot be opened yet. Nothing is wrong and
-            // nothing is lost -- say NOTHING to the user, because there is nothing for them to do
-            // and the next unlocked drain picks the queue up untouched. Reporting a notice here
-            // would tell someone their pings failed because their phone was in their pocket.
+            // The queue file is still sealed -- a background wake after a restart, before the
+            // first unlock (D-21's class; under the old one this was EVERY locked wake). Nothing
+            // is wrong and nothing is lost -- say NOTHING to the user, because there is nothing
+            // for them to do and the next unlocked drain picks the queue up untouched. Reporting
+            // a notice here would tell someone their pings failed because their phone was in
+            // their pocket.
             return PingDrainReport(updates: [], notice: nil)
         } catch PingQueueError.unreadable {
             return PingDrainReport(

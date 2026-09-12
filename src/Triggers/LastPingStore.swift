@@ -15,14 +15,16 @@ import Foundation
 ///    keyed by anything -- which is what makes "a single overwritten point, not a location
 ///    history" true by construction rather than by convention.
 /// 2. Excluded from backups (`isExcludedFromBackup`), same as the queue.
-/// 3. Protection class `.completeUntilFirstUserAuthentication` -- **deliberately weaker** than
-///    the queue's `.completeFileProtectionUnlessOpen`. A geofence exit fires while the phone is
-///    locked in a pocket, which is the entire point of the feature: under complete protection
-///    that write would fail on exactly that wake, and the region would never re-register. Phase
-///    03 already shipped the inverse of this bug -- a locked device could not open the queue file
-///    and the drain reported the pings undeliverable (`PingQueueStore.swift:67-76`,
-///    `PingQueueError.unavailable`). The trade is stated rather than hidden: this file survives a
-///    locked screen, so it is readable after first unlock following boot, not after every lock.
+/// 3. Protection class `.completeUntilFirstUserAuthentication`. A geofence exit fires while the
+///    phone is locked in a pocket, which is the entire point of the feature: under complete
+///    protection that write would fail on exactly that wake, and the region would never
+///    re-register. When D-16 chose this class it was **deliberately weaker** than the queue's
+///    then-`.completeFileProtectionUnlessOpen`; phase 03 had shipped the inverse of this bug --
+///    a locked device could not open the queue file and the drain reported the pings
+///    undeliverable (`PingQueueError.unavailable`). D-21 (2026-09-12) moved the queue to this
+///    SAME class for the same reason, so the two stores now match. The trade is stated rather
+///    than hidden: this file survives a locked screen, so it is readable after first unlock
+///    following boot, not after every lock.
 /// 4. Deleted when every trigger is disabled (`TriggerCoordinator.applySettings`) -- if nothing
 ///    is watching, nothing needs the position, in memory or on disk.
 ///
@@ -60,7 +62,7 @@ actor FileLastPingStore: LastPingStoring {
     /// against the SAME symbol `save` actually uses (`LastPingStoreTests` and this plan's verify
     /// both key off `Self.writeOptions`). `.completeFileProtectionUntilFirstUserAuthentication`
     /// is the `Data.WritingOptions` spelling of condition 3 above -- see this file's header for
-    /// why it is deliberately weaker than the queue's protection class.
+    /// why this class, and why the queue (D-21) now shares it.
     static let writeOptions: Data.WritingOptions = [
         .atomic, .completeFileProtectionUntilFirstUserAuthentication,
     ]
