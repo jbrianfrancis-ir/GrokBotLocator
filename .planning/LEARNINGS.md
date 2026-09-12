@@ -104,3 +104,11 @@
   branch was never once executed by 267 green tests. When a default in a test fake decides which
   branch runs, the other branch is untested: give the fake a PARAMETER for the state that is normal
   in production (already authorized, already migrated, already cached) and drive both.
+- When a trigger does not fire, read the OS's own log before theorising about your code.
+  `xcrun simctl spawn <udid> log show --last 5m` carries `locationd`'s per-fence state machine:
+  fence identity, radius, distance, raw `status (Inside) => (Outside)`, and a separate `settled
+  state` with an `sCount`. Four REQ-08 runs and two wrong hypotheses (first "CLMonitor does not
+  deliver", then a retraction) were settled in one read: the fence WAS armed correctly and the OS
+  had computed the crossing, but `sCount` never left 0 so it never promoted it to a delivered
+  event — the simulator's ~15 s synthetic fixes never satisfy the settling logic. Also: `print` +
+  `simctl launch --console-pty` captured nothing when backgrounded; `NSLog` + the unified log did.
