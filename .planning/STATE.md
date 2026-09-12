@@ -2,10 +2,11 @@
 # State
 ## Position
 Phase: 4 of 4 (Automatic triggers) | Plans: 15/15 | Status: verifying — gaps: [], human checks open
-Last: 2026-09-12 — 3 defects fixed (debug/001 session, debug/002 stale region, D-18 copy).
-  REQ-06 re-confirmed; REQ-08 blocked by sim fence settling. Smoke GREEN 272/29.
+Last: 2026-09-12 — D-21 (queue writable from a locked pocket) is BUILT AND ON THE PHONE:
+  smoke green 275/29, signed device build installed + launched (pid 1567), profile to
+  2027-09-12. D-21's own test named a member the fake lacked, so it had never compiled.
 Next: set the webhook in Settings on the phone, tap "I'm here", then walk 500 m to
-  confirm an automatic ping lands. PR #5 open.
+  confirm an automatic ping lands. PR #6 open with D-21.
 ## Gate
 type: human-action
 asked: On the device with a 365-day profile. Remaining device checks are REQ-07 visits,
@@ -20,6 +21,7 @@ Signature: rule2:phase04:plans15/15:verifhuman
 ## Decisions
 - D-15: MapKit for reverse geocoding, one file
 - D-16: 2nd coordinate store — the last-ping position, overwritten never appended
+- D-21: queue file shares D-16's protection class, writable from a locked pocket
 ## Blockers
 - none blocking. INSTALLED on device 2026-09-12 as com.bfrancis.grokbotlocator.trip (D-20
   rename cleared a personal-team App ID collision); profile expires 2027-09-12, 365 days.
@@ -27,7 +29,10 @@ Signature: rule2:phase04:plans15/15:verifhuman
   the fence armed and computing (Inside)=>(Outside), but sCount stays 0 so it never delivers.
 - D-17/D-19 want pinning tests (D-18 done). 2 latent findings in TODOS.md.
 ## Session
-Stopped: branch pushed, PR #5 open against main. Tree clean.
+Stopped: PR #5 MERGED. PR #6 OPEN (4 commits, mergeable) carrying D-21 off
+  claude/ping-while-locked-fyn2q0. Opened before the locked-pocket check by choice; the
+  limits are written into its body. Sim CANNOT prove the protection class: it surfaces no
+  NSFileProtectionKey (probed, control+protected both nil), so that test pins only the seam.
 Resume: app work is DONE for REQ-06; the only thing between here and a working 2-week
   tracker is a signing cert (Blockers). Sim needs `simctl location start` with lat,lon
   pairs, not a teleport; read locationd via `simctl spawn <udid> log show` before theorising.

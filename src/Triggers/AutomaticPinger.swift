@@ -2,8 +2,10 @@ import Foundation
 
 /// Whether an automatic trigger actually produced a ping. 04-11's `TriggerCoordinator` reads
 /// this to decide whether to advance its reference coordinate and re-register a geofence --
-/// both of those must happen only when a ping actually went out, never on a rate-limited or
-/// misconfigured attempt that sent nothing.
+/// both of those must happen only when a ping actually went out or is held for delivery, never
+/// on a rate-limited or misconfigured attempt that sent nothing, and (D-21) never on a
+/// `.pinged(.failed)` either: the carried `PingOutcome` is what lets the coordinator tell a
+/// delivered-or-queued ping from one that is gone.
 enum AutomaticPingResult: Sendable, Equatable {
     case pinged(PingOutcome)
     case rateLimited

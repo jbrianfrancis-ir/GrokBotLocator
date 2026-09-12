@@ -312,14 +312,19 @@ actor TriggerCoordinator {
 
     // MARK: - Shared tail
 
-    /// The only place `reference` is advanced. Only a `.pinged` result moves it -- a rate-limited
-    /// or credential/fix-less attempt sent nothing, so "where the last ping was" has not changed
-    /// and re-registering the geofence there would be re-arming a region nothing actually reached.
+    /// The only place `reference` is advanced. Only a ping the webhook will actually receive
+    /// moves it: `.pinged(.sent)` (delivered) or `.pinged(.queued)` (held on disk, delivered by
+    /// the next drain). A rate-limited or credential/fix-less attempt sent nothing, and so did a
+    /// `.pinged(.failed)` -- the POST failed AND nothing holds the payload, so "where the last
+    /// ping was" has not changed. Until D-21 `.failed` advanced the reference anyway: every
+    /// locked-pocket send that could not be queued moved the reference and re-armed the geofence
+    /// at a position the webhook never received, so the next 500 m of movement measured from a
+    /// point that was never reported. Re-registering there is re-arming a region nothing reached.
     private func pingAndAdvance(
         fix: LocationFix, coordinate: TriggerCoordinate, trigger: PingTrigger
     ) async {
         let result = await pinger.ping(fix: fix, trigger: trigger)
-        guard case .pinged = result else { return }
+        guard case .pinged(let outcome) = result, outcome != .failed else { return }
         reference = coordinate
         // D-16: overwrite the durable record in place, above the geofence re-registration below,
         // so only a real `.pinged` result ever moves it -- same guard as `reference` itself.

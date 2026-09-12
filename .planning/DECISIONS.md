@@ -1,5 +1,43 @@
 # Decisions
 
+## 2026-09-12 · checkpoint-decision (D-21) — queue file moved to the until-first-unlock class
+- **asked**: "Why can't the app send a ping while locked?" Traced: sending itself works while locked
+  (credentials are `AfterFirstUnlockThisDeviceOnly`, the POST is an ordinary `URLSession`). What
+  broke was D-12's own protection class. `FilePingQueueStore.write` stored the queue
+  `.completeFileProtectionUnlessOpen`, which iOS refuses to open while the device is locked — and a
+  locked pocket is exactly where every automatic trigger (REQ-06/07/08) fires. So (1) an automatic
+  send that failed offline hit `PingQueueError.unavailable` on the append, `DurablePingSink`
+  returned "could not be saved while the device is locked … tap I'm here again", `PingSender`
+  downgraded it to a permanent failure, and the ping was gone; (2) `TriggerCoordinator
+  .pingAndAdvance` treated `.pinged(.failed)` as a ping and advanced the reference and the geofence
+  to a point the webhook never received; (3) every background drain (BGAppRefreshTask, location
+  wake) found the file sealed and silently gave up. Phase 03's fix (4329a97) only stopped the locked
+  read from destroying the queue; D-16 then chose the weaker class for the last-ping file and named
+  the queue's class as "the inverse of this bug" already shipped. Move the queue to D-16's class,
+  accepting that queued coordinates are decryptable at rest whenever the phone has been unlocked
+  once since boot — or keep the stronger class and accept that automatic pings cannot queue from a
+  pocket?
+- **answered**: MOVE IT, and fix the other two. Verbatim: "Yes, make the change and fix the
+  advance and the sentence too".
+- **note**: three changes, each pinned. (1) `FilePingQueueStore.writeOptions` is now a named seam
+  carrying `.completeFileProtectionUntilFirstUserAuthentication`, asserted by
+  `theQueueFileCarriesTheStatedProtectionClass` (both the new class present and the old one
+  absent). `.unavailable` survives but now means "sealed between a restart and the first unlock",
+  the only remaining case. (2) `pingAndAdvance` advances only on `.pinged(.sent)` or
+  `.pinged(.queued)`; `.pinged(.failed)` — the POST failed AND nothing holds the payload — leaves
+  the reference, the geofence and the durable last ping untouched
+  (`aFailedPingDoesNotAdvanceTheReferenceButAQueuedOneDoes`). (3) `DurablePingSink
+  .sealedQueueReason` replaces the "tap I'm here again" sentence: the only path that reaches it is
+  an automatic trigger, so it names no tap (`aSealedQueueSentenceDoesNotAskForATap`). D-12's clause
+  in ARCHITECTURE.md is amended in place; D-16's "deliberately weaker than the queue's" is now
+  historical and reads so. A separate, UNVERIFIED risk surfaced by the same trace is recorded in
+  TODOS.md, not fixed here: a terminated app relaunched in the background for a location event may
+  never run `TriggerCoordinator.start()` (it hangs off the root view's `.task`), so the delegate
+  handlers would be nil on exactly that wake. Smoke NOT run for this change — no Swift toolchain in
+  the session that made it; the next `scripts/smoke.sh` run is the evidence.
+- **by**: owner
+- **at**: (this branch) · phase 04 (verification) · amends ARCHITECTURE.md
+
 ## 2026-09-12 · checkpoint-decision (D-20) — bundle id renamed to clear a team collision
 - **asked**: With the paid team's Development cert renewed and Xcode signed in, Apple refused to
   register the App ID: "the app identifier com.bfrancis.grokbotlocator cannot be registered to
