@@ -29,7 +29,7 @@ Signature: rule2:phase04:plans15/15:verifhuman
   the fence armed and computing (Inside)=>(Outside), but sCount stays 0 so it never delivers.
 - D-17/D-19 want pinning tests (D-18 done). 2 latent findings in TODOS.md.
 ## Session
-Stopped: 74 commits on flow/automatic-triggers, 3 unpushed. No PR opened.
-Resume: REQ-08 had TWO causes, both closed — 04-15's arming gap, debug/001's missing session.
-  Sim needs `simctl location start` with lat,lon pairs, not a teleport or .gpx; the repro's
-  step 0 (other triggers off, force-quit) is load-bearing.
+Stopped: branch pushed, PR #5 open against main. Tree clean.
+Resume: app work is DONE for REQ-06; the only thing between here and a working 2-week
+  tracker is a signing cert (Blockers). Sim needs `simctl location start` with lat,lon
+  pairs, not a teleport; read locationd via `simctl spawn <udid> log show` before theorising.
