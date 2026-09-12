@@ -4,7 +4,8 @@
 Phase: 4 of 4 (Automatic triggers) | Plans: 15/15 | Status: verifying — gaps: [], human checks open
 Last: 2026-09-12 — 3 defects fixed (debug/001 session, debug/002 stale region, D-18 copy).
   REQ-06 re-confirmed; REQ-08 blocked by sim fence settling. Smoke GREEN 272/29.
-Next: set the webhook in Settings, install on a REAL iPhone, then /flow-pr
+Next: mint an Apple Development cert for the PAID team (expired 2025-12-16) — see
+  DECISIONS 2026-09-12; PR #5 is open
 ## Gate
 type: human-action
 asked: No gaps left, smoke green. 5 checks need a device; 3 backstops need a stated RULE —
@@ -21,6 +22,10 @@ Signature: rule2:phase04:plans15/15:verifhuman
 - D-15: MapKit for reverse geocoding, one file
 - D-16: 2nd coordinate store — the last-ping position, overwritten never appended
 ## Blockers
+- CANNOT install a 2-week-durable device build: the paid team's Apple Development cert EXPIRED
+  2025-12-16, its valid cert is Distribution-only, the only valid Dev certs are FREE personal
+  teams (7-day profiles, D-03's stranded-mid-trip risk), and no Apple ID is signed into Xcode.
+  Human action required; no code change can fix it. Evidence: DECISIONS 2026-09-12.
 - REQ-08 unverifiable on the simulator, CAUSE UNDERSTOOD, no app work outstanding (debug/002
   resolved): locationd shows the fence armed at radius 150 and computing (Inside)=>(Outside),
   but sCount never leaves 0 so it never settles and never delivers. Needs a real device.

@@ -1,5 +1,35 @@
 # Decisions
 
+## 2026-09-12 · evidence — the paid team is already configured; its Development cert has EXPIRED
+- **asked**: N/A — user asked to "switch the signing config to the paid team". Nothing to switch:
+  `Signing.xcconfig` has held the paid work team since D-03 (2026-09-09 19:30). The real blocker
+  is a certificate, and it is now measured rather than assumed.
+- **answered**: Certificates were read by their Organizational Unit, which IS the Team ID — NOT
+  the parenthetical in the CN, which the 2026-09-10 entry already warned is a certificate
+  identifier. By OU, on this Mac:
+  - Apple **Development** for the PAID work team — **EXPIRED 2025-12-16** (9 months ago). The team
+    has supported development signing before, so renewing is a known-good path.
+  - Apple **Distribution** for the PAID work team — valid to 2027-07-30. Cannot sign an ordinary
+    development build; it is for App Store / TestFlight / Ad Hoc.
+  - The only VALID Apple Development certs belong to two OTHER teams (personal). The 2026-09-10
+    evidence entry measured a personal team as FREE: a 7-day profile. D-03's "stranded mid-trip"
+    risk therefore applies to every currently-usable Development cert.
+  - `IDEProvisioningTeams` is empty — **no Apple ID is signed into Xcode**, so Xcode cannot mint a
+    replacement cert or profile unattended.
+- **note**: so the app CANNOT currently be installed on a device in a form that survives two
+  weeks, and no change under `src/` or `project.yml` can fix that. Three human paths, in order of
+  directness: (1) sign into Xcode with an account holding Developer/Admin role in the paid org and
+  mint a new Apple Development cert — 1-year profile; a plain "Member" role cannot do this and
+  needs an org admin; (2) TestFlight, which uses the Distribution cert that IS valid — 90-day
+  builds, over-the-air updates, no cable, but needs App Store Connect access to that org;
+  (3) a personal paid membership (~$99/yr), which avoids employer-org permissions entirely.
+  Per the 2026-09-09 21:55 decision, device signing is applied as **xcodebuild command-line
+  overrides** — `Signing.xcconfig` and `project.yml` are deliberately NOT modified, so the
+  committed configuration stays the paid team with ad-hoc simulator signing. That pattern is
+  unchanged here: nothing was edited.
+- **by**: Claude (evidence gathered; the call itself is the human's)
+- **at**: phase 04 (verification) · no files modified
+
 ## 2026-09-09 19:20 · checkpoint-decision
 - **asked**: Phase-1 plans had defects I proved empirically and /flow-plan's 3-round revision budget was spent. Resolve by (1) applying the fixes directly, (2) a fresh planner + checker round, (3) executing as-is, or (4) a /flow-oracle second opinion?
 - **answered**: Option 1 — apply the fixes directly. Also supplied the signing Team ID source (the iOS app in SpecialProjects.StudentLoans) and resolved the open sender-key question: show a "key saved" indicator rather than exposing the credential.
