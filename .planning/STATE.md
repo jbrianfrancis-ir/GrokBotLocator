@@ -8,12 +8,11 @@ Next: mint an Apple Development cert for the PAID team (expired 2025-12-16) — 
   DECISIONS 2026-09-12; PR #5 is open
 ## Gate
 type: human-action
-asked: No gaps left, smoke green. 5 checks need a device; 3 backstops need a stated RULE —
-  an abstention is lifted by a human, never a green test. Full list in VERIFICATION.md
+asked: Smoke green, PR #5 open. Device checks blocked on signing (see Blockers).
 options:
-  1. Run the 5 device checks + rule the 3 backstops, then /flow-verify 4 → /flow-pr.
-  2. Rule the 3 backstops, defer device checks to UAT — phase stays unverified.
-  3. Open the PR now — merges REQ-07/08 unproven on device.
+  1. Mint a Dev cert for the paid team (org Admin role may be needed) → 1-yr profile.
+  2. TestFlight via the valid Distribution cert → 90-day builds, no cable.
+  3. Personal paid membership (~$99) → avoids org permissions.
 default: none
 ## Run
 Iteration: 6 | Started: 2026-09-11T16:05Z | Repeats: 0
@@ -26,11 +25,9 @@ Signature: rule2:phase04:plans15/15:verifhuman
   2025-12-16, its valid cert is Distribution-only, the only valid Dev certs are FREE personal
   teams (7-day profiles, D-03's stranded-mid-trip risk), and no Apple ID is signed into Xcode.
   Human action required; no code change can fix it. Evidence: DECISIONS 2026-09-12.
-- REQ-08 unverifiable on the simulator, CAUSE UNDERSTOOD, no app work outstanding (debug/002
-  resolved): locationd shows the fence armed at radius 150 and computing (Inside)=>(Outside),
-  but sCount never leaves 0 so it never settles and never delivers. Needs a real device.
-- D-17/18/19 were RULED 2026-09-11; D-18's code change is now done. D-17/D-19 want tests.
-- 2 latent findings filed not fixed — see TODOS.md.
+- REQ-08 unverifiable on sim, cause understood, no app work left (debug/002): locationd shows
+  the fence armed and computing (Inside)=>(Outside), but sCount stays 0 so it never delivers.
+- D-17/D-19 want pinning tests (D-18 done). 2 latent findings in TODOS.md.
 ## Session
 Stopped: 74 commits on flow/automatic-triggers, 3 unpushed. No PR opened.
 Resume: REQ-08 had TWO causes, both closed — 04-15's arming gap, debug/001's missing session.
