@@ -55,6 +55,19 @@ unverified:
   the simulator.** A teleport (Features ▸ Location ▸ Custom) produces nothing; `location start`
   with interpolated waypoints works. Fixtures in `scripts/gpx/`.
 - [ ] REQ-07 on device — simulated visit arrival, backgrounded → exactly one ping shown as Arrival.
+- [ ] **REQ-08 cold relaunch — RE-RUN DONE 2026-09-12, still NOT verified; now blocked on real
+  hardware.** Two further defects were found and fixed by driving it (debug/001: no
+  `CLServiceSession` on an already-Always cold relaunch; debug/002: a stale surviving region was
+  never re-centred). After both fixes the region demonstrably arms at the reference — and
+  `CLMonitor` still delivered ZERO events over 250 m and then 2 km of real interpolated movement,
+  with the events loop confirmed running, in BOTH `add`/`events` orderings. `monitor.add` also
+  never updated the monitor file. **Two premises below did not hold and are corrected:** (a) that
+  04-15's probe measured events being delivered on the simulator — they are not, for this app;
+  (b) that the registered region is a reliable readable-back durable record — on the simulator it
+  is not, so D-16's last-ping file is load-bearing here rather than belt-and-braces. Whether
+  either holds on real hardware is untested; the 04-15 probe was a throwaway and is gone, so the
+  disagreement cannot be settled by re-reading it. Full evidence in `.planning/debug/002-*.md`.
+  **Superseded original note follows.**
 - [ ] **REQ-08 cold relaunch — re-run needed after 04-15.** The earlier NOT-REPRODUCED had two
   candidate causes; 04-15's throwaway probe **ruled out both by measurement** (RESEARCH.md "Q2
   addendum"): `CLMonitor(name:)` recovered its condition after a real `simctl terminate`
@@ -81,9 +94,20 @@ unverified:
   the write-options constant instead. Also the point at which to confirm the deliberate
   weaker-than-the-queue trade D-16 calls out (a geofence exit writing while locked) rather than
   the stronger class.
-- [ ] Backstop: `hydrate()` copying queue entries into `PingHistoryLog` — **D-16 did NOT ratify this**: it widened D-12 for the last-ping coordinate only. Narrow the clause for the history copy, or drop the copy and accept losing queued rows on relaunch. State the rule, then pin it with a test.
-- [ ] Backstop: `UnqueuedPingSink`'s 429 sentence vs D-14 — write honest no-queue copy, or ratify the current downgrade. Then pin it.
-- [ ] Backstop: `MKReverseGeocodingRequest` throttling/offline contract — state what the app may assume, or accept "any failure ⇒ empty label, bounded by construction" as the standing rule.
+- [x] Backstop: `hydrate()` copying queue entries into `PingHistoryLog` — **RULED D-17**
+  (2026-09-11 17:40, "approved"): the shipped behaviour stands and D-12's clause is narrowed to a
+  second *durable* copy. Still wants a test pinning that the copy is session-only.
+- [x] Backstop: `UnqueuedPingSink`'s 429 sentence vs D-14 — **RULED D-18** (2026-09-11 17:40,
+  "downgrade ratified"), and the forced copy change is now DONE: the sink supplies its own
+  `noQueueReason` instead of echoing the classifier's retry promise, pinned by
+  `theNoQueueSinkDoesNotEchoTheRetryablePromise` (2026-09-12).
+- [x] Backstop: `MKReverseGeocodingRequest` throttling/offline contract — **RULED D-19**
+  (2026-09-11 17:40, "empty label"): any failure ⇒ empty label, bounded by construction. Still
+  wants a test pinning the rule generally rather than per-error-case.
+
+<!-- 2026-09-12 correction: an earlier STATE.md "Next" line said these three needed RULING. They
+did not — they were ruled on 2026-09-11 17:40. What was outstanding was tests, plus D-18's copy
+change. D-18 is now closed; D-17 and D-19 still want their pinning tests. -->
 
 ## Learnings
 - A bound that depends on a vendor API honouring `cancel()` is not a bound: `MKReverseGeocodingRequest.mapItems` did not resume on `cancel()` with no service reachable and hung indefinitely. The pattern that works is an unstructured, never-awaited fetch plus a `Mutex`-guarded one-shot continuation — bounded by construction. Any future "race X against a timeout" should copy this shape, not `withTaskGroup`.

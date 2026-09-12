@@ -81,10 +81,16 @@ already-granted state is reachable from a test at all — the gap that hid this.
 
 **What this does NOT settle.** The fix removes a proven defect on REQ-08's arming path; it is not
 a device pass. Whether holding the session is SUFFICIENT for the OS to deliver an exit to a
-backgrounded/terminated app is still the phase's open backstop truth (D-17/18/19, and
-`LocationDelegateProxy`'s own doc comment: "Which of 'holding this session' vs. iterating
+backgrounded/terminated app is still open — it is the unsettled truth recorded in
+`LocationDelegateProxy`'s own doc comment ("Which of 'holding this session' vs. iterating
 `CLMonitor.events` actually keeps Always effective on device is still unsettled"). REQ-08's
 acceptance clause still needs the device run in `GeofenceMonitor.swift`'s reproduction steps.
+
+**Correction (2026-09-12).** An earlier version of this file attributed that open question to
+D-17/18/19. That was wrong and is retracted: D-17/18/19 were already RULED by the human on
+2026-09-11 17:40 ("1 approved / 2 downgrade ratified / 3 empty label") and concern `hydrate()`'s
+in-memory copy, the no-queue 429 sentence, and reverse-geocoding failures — none of them the
+geofence. What they still needed was TESTS pinning them, not a ruling.
 
 **Latent, deliberately not fixed here (H3).** `GeofenceMonitor.swift:116-118` returns out of the
 `for try await` loop on `conditionLimitExceeded || authorizationDenied`, permanently killing the
