@@ -1,24 +1,33 @@
 <!-- .planning/STATE.md — cap 1.5KB. Rewrite sections in place; never append. -->
 # State
 ## Position
-Phase: 3 of 4 PR #4 OPEN — 12/12 plans, smoke 177/19, 8/8 checks closed, 0 gaps
-Last: 2026-09-11 — acceptance found a DOUBLE-DELIVERY bug no test caught (actor reentrancy, 64f7b7d). D-13 shrank the type scale; D-14 settled all 3 backstops.
-Next: review + merge PR #4 (human); then /flow-next. Phase 02's 11 checks still open
+Phase: 4 of 4 (Automatic triggers) | Plans: 15/15 | Status: verifying — gaps: [], human checks open
+Last: 2026-09-12 — 3 defects fixed (debug/001 session, debug/002 stale region, D-18 copy).
+  REQ-06 re-confirmed; REQ-08 blocked by sim fence settling. Smoke GREEN 272/29.
+Next: set the webhook in Settings on the phone, tap "I'm here", then walk 500 m to
+  confirm an automatic ping lands. PR #5 open.
 ## Gate
-none — D-13 (type scale; amends DESIGN.md + REQ-12) and D-14 (4xx policy, give-up horizon,
-retention, bundle-id scope) answered 2026-09-11. All 3 backstops now stated in REQUIREMENTS.md.
+type: human-action
+asked: On the device with a 365-day profile. Remaining device checks are REQ-07 visits,
+  REQ-05's fourth drain, SC-03 battery, D-16 protection class — all need real-world use.
+options:
+  1. Configure the webhook and use it on the trip; treat the trip as UAT.
+  2. Also set up TestFlight first, so fixes can ship without the Mac.
+default: none
 ## Run
-Iteration: 3 | Started: 2026-09-10T19:10Z | Repeats: 0
-Signature: rule8:phase03:plans12/12:verifpass
+Iteration: 6 | Started: 2026-09-11T16:05Z | Repeats: 0
+Signature: rule2:phase04:plans15/15:verifhuman
 ## Decisions
-- init: iOS 26.0; deploy.tool null — merge terminal (D-01/04/07)
-- 15:30: type curves LEFT ALONE; AX5 inversion accepted (02-01)
-- D-12: queue is the one sanctioned coordinate store; payload gains `at`
+- D-15: MapKit for reverse geocoding, one file
+- D-16: 2nd coordinate store — the last-ping position, overwritten never appended
 ## Blockers
-- none
+- none blocking. INSTALLED on device 2026-09-12 as com.bfrancis.grokbotlocator.trip (D-20
+  rename cleared a personal-team App ID collision); profile expires 2027-09-12, 365 days.
+- REQ-08 unverifiable on sim, cause understood, no app work left (debug/002): locationd shows
+  the fence armed and computing (Inside)=>(Outside), but sCount stays 0 so it never delivers.
+- D-17/D-19 want pinning tests (D-18 done). 2 latent findings in TODOS.md.
 ## Session
-Stopped: PR #4 open — https://github.com/jbrianfrancis-ir/GrokBotLocator/pull/4. Review found 6
-  blocking defects AFTER verification said pass; 3 were actor reentrancy, 1 was a locked device
-  destroying the queue. All fixed, 3 rounds, final round clean. Docs only, no CI on this repo.
-Resume: merge is human. 2 open decisions in the PR body: hydrate() vs ARCHITECTURE:72's "never
-  copied", and UnqueuedPingSink relabelling a 429 as permanent ("Failed: it is waiting").
+Stopped: branch pushed, PR #5 open against main. Tree clean.
+Resume: app work is DONE for REQ-06; the only thing between here and a working 2-week
+  tracker is a signing cert (Blockers). Sim needs `simctl location start` with lat,lon
+  pairs, not a teleport; read locationd via `simctl spawn <udid> log show` before theorising.

@@ -58,6 +58,8 @@ struct SettingsView: View {
 
                 errorView
 
+                automaticPingsSection
+
                 VStack(alignment: .leading, spacing: DSMetrics.groupGap) {
                         // The 60pt frame and the content shape live INSIDE the label, as in
                         // PingButton: a `.frame` applied to the Button from outside enlarges the
@@ -98,7 +100,140 @@ struct SettingsView: View {
             .padding(DSMetrics.screenMargin)
         }
         .safeAreaInset(edge: .bottom) { saveBar }
-        .task { model.load() }
+        .task {
+            model.load()
+            await model.loadTriggers()
+        }
+    }
+
+    /// REQ-09/REQ-10: three independent switches, the shared interval, and (when there is one)
+    /// the sentence explaining what the current authorization does not allow. Sits between the
+    /// credential errors and the Clear/Test group, in its own `DSMetrics.groupGap`-spaced
+    /// section like the credential fields above it.
+    ///
+    /// Every switch and the stepper route through a `Binding` whose setter fires a `Task`
+    /// calling the matching `SettingsModel` method -- the model moves the value locally before
+    /// awaiting the coordinator, so the control itself never waits on CoreLocation. The interval
+    /// control's `in:` range is how REQ-09's floor is expressed here: the Stepper cannot reach a
+    /// value below `PingRateLimiter.hardFloor`, so there is no error state to write for it.
+    ///
+    /// Two things here only a device or simulator can settle -- `SettingsModelTests` proves the
+    /// model's logic, not what the screen looks like or what the OS actually shows:
+    /// (a) AX5 reflow -- four controls whose labels are full sentences ("Big moves (500 m)" plus
+    /// its explanation, the arrivals and geofence rows, the interval Stepper's label, and the
+    /// notice with no `lineLimit`) have to wrap without truncation, clipping, or overlap, and
+    /// stay tappable at that size (DESIGN.md). The "Light — all triggers on, notice, AX5"
+    /// preview below is the closest a unit suite gets; it cannot prove there is no overlap on an
+    /// actual device.
+    /// (b) The real Always prompt -- with every trigger off, no prompt should appear at all
+    /// (REQ-10); flipping one on should raise it, and choosing "While Using" should turn
+    /// `triggerNotice` into the sentence read here on screen while the I'm here button keeps
+    /// sending. `FakeTriggerControl` proves the MODEL'S reaction to a notice; it cannot raise
+    /// the system's own dialog.
+    private var automaticPingsSection: some View {
+        VStack(alignment: .leading, spacing: DSMetrics.groupGap) {
+            Text("Automatic pings")
+                .dsFont(.body)
+                .foregroundStyle(DSPalette.body.foreground(for: colorScheme))
+                .accessibilityAddTraits(.isHeader)
+
+            // Three independent switches, each its own 60pt row -- the frame and content live
+            // INSIDE the toggle's label, the same shape Clear and Test connection use above.
+            VStack(alignment: .leading, spacing: DSMetrics.spacingBase) {
+                Toggle(
+                    isOn: Binding(
+                        get: { model.triggerSettings.significantChangeEnabled },
+                        set: { newValue in Task { await model.setSignificantChange(newValue) } }
+                    )
+                ) {
+                    Text("Big moves (500 m)")
+                        .dsFont(.body)
+                        .frame(maxWidth: .infinity, minHeight: DSMetrics.minTapTarget, alignment: .leading)
+                        .foregroundStyle(DSPalette.body.foreground(for: colorScheme))
+                }
+                .accessibilityLabel("Big moves, 500 metres")
+                .accessibilityHint(
+                    "Pings when you have moved at least 500 metres from the last ping.")
+
+                Text("Pings when you have moved at least 500 metres from the last ping.")
+                    .dsFont(.secondary)
+                    .foregroundStyle(DSPalette.secondary.foreground(for: colorScheme))
+            }
+
+            VStack(alignment: .leading, spacing: DSMetrics.spacingBase) {
+                Toggle(
+                    isOn: Binding(
+                        get: { model.triggerSettings.visitsEnabled },
+                        set: { newValue in Task { await model.setVisits(newValue) } }
+                    )
+                ) {
+                    Text("Arrivals")
+                        .dsFont(.body)
+                        .frame(maxWidth: .infinity, minHeight: DSMetrics.minTapTarget, alignment: .leading)
+                        .foregroundStyle(DSPalette.body.foreground(for: colorScheme))
+                }
+                .accessibilityLabel("Arrivals")
+                .accessibilityHint("Pings when you arrive somewhere and stay a while.")
+
+                Text("Pings when you arrive somewhere and stay a while.")
+                    .dsFont(.secondary)
+                    .foregroundStyle(DSPalette.secondary.foreground(for: colorScheme))
+            }
+
+            VStack(alignment: .leading, spacing: DSMetrics.spacingBase) {
+                Toggle(
+                    isOn: Binding(
+                        get: { model.triggerSettings.geofenceEnabled },
+                        set: { newValue in Task { await model.setGeofence(newValue) } }
+                    )
+                ) {
+                    Text("Leaving the last spot")
+                        .dsFont(.body)
+                        .frame(maxWidth: .infinity, minHeight: DSMetrics.minTapTarget, alignment: .leading)
+                        .foregroundStyle(DSPalette.body.foreground(for: colorScheme))
+                }
+                .accessibilityLabel("Leaving the last spot")
+                .accessibilityHint("Pings when you leave the area around the last ping.")
+
+                Text("Pings when you leave the area around the last ping.")
+                    .dsFont(.secondary)
+                    .foregroundStyle(DSPalette.secondary.foreground(for: colorScheme))
+            }
+
+            VStack(alignment: .leading, spacing: DSMetrics.spacingBase) {
+                Stepper(
+                    value: Binding(
+                        get: { model.triggerSettings.minimumIntervalSeconds },
+                        set: { newValue in Task { await model.setMinimumInterval(newValue) } }
+                    ),
+                    in: PingRateLimiter.hardFloor...300,
+                    step: 15
+                ) {
+                    Text(
+                        "Minimum gap between pings: \(Int(model.triggerSettings.minimumIntervalSeconds)) seconds"
+                    )
+                    .dsFont(.body)
+                    .frame(maxWidth: .infinity, minHeight: DSMetrics.minTapTarget, alignment: .leading)
+                    .foregroundStyle(DSPalette.body.foreground(for: colorScheme))
+                }
+                .accessibilityLabel("Minimum gap between pings")
+                .accessibilityValue("\(Int(model.triggerSettings.minimumIntervalSeconds)) seconds")
+
+                Text("This gap covers the I'm here button too, not just automatic pings.")
+                    .dsFont(.secondary)
+                    .foregroundStyle(DSPalette.secondary.foreground(for: colorScheme))
+            }
+
+            if let triggerNotice = model.triggerNotice {
+                // Body size, not secondary: DESIGN.md requires a failure to say what happened
+                // and what to do next in body-size text on screen. No line limit, so it
+                // reflows at AX5 instead of clipping.
+                Text(triggerNotice)
+                    .dsFont(.body)
+                    .foregroundStyle(DSPalette.body.foreground(for: colorScheme))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
     }
 
     /// The primary action, pinned to the bottom so the status badge grows upward instead of
@@ -222,10 +357,13 @@ private struct StubPingSending: PingSending {
     let attempt: PingAttempt
 
     func send(label: String) async -> PingAttempt { attempt }
+    func send(label: String, using fix: LocationFix) async -> PingAttempt { attempt }
 }
 
 @MainActor
-private func previewModel(hasStoredKey: Bool, sender: PingSending? = nil) -> SettingsModel {
+private func previewModel(
+    hasStoredKey: Bool, sender: PingSending? = nil, triggers: (any TriggerControlling)? = nil
+) -> SettingsModel {
     let store = PreviewCredentialStore(
         stored: hasStoredKey
             ? WebhookCredentials(
@@ -234,10 +372,49 @@ private func previewModel(hasStoredKey: Bool, sender: PingSending? = nil) -> Set
                 headerName: WebhookCredentials.defaultHeaderName)
             : nil
     )
-    let model = SettingsModel(store: store, sender: sender)
+    let model = SettingsModel(store: store, sender: sender, triggers: triggers)
     model.load()
     return model
 }
+
+/// A preview-only trigger control that answers with a fixed settings/notice pair and touches
+/// no coordinator. `update(_:)` is a no-op -- previews never need it to change what's on screen.
+private struct StubTriggerControl: TriggerControlling {
+    let settings: TriggerSettings
+    let notice: String?
+
+    func update(_ settings: TriggerSettings) async {}
+    func currentSettings() async -> TriggerSettings { settings }
+    func authorizationNotice() async -> String? { notice }
+}
+
+/// Drives one `loadTriggers()` as the canvas appears so the toggles and notice are on screen by
+/// the time the preview draws -- the same shape `PreviewTestedSettings` uses for a test result.
+private struct PreviewSettingsWithTriggers: View {
+    @State private var model: SettingsModel
+
+    @MainActor
+    init(hasStoredKey: Bool, triggerSettings: TriggerSettings, notice: String?) {
+        _model = State(
+            initialValue: previewModel(
+                hasStoredKey: hasStoredKey,
+                triggers: StubTriggerControl(settings: triggerSettings, notice: notice)))
+    }
+
+    var body: some View {
+        SettingsView(model: model)
+            .task { await model.loadTriggers() }
+    }
+}
+
+/// All three triggers on, at the default interval, with the "you chose While Using" sentence
+/// showing -- the one state this plan's must_haves require a preview for.
+private let previewAllTriggersOnWithNotice = TriggerSettings(
+    significantChangeEnabled: true,
+    visitsEnabled: true,
+    geofenceEnabled: true,
+    minimumIntervalSeconds: PingRateLimiter.defaultInterval
+)
 
 /// Drives one `testConnection()` as the canvas appears so the report is on screen by the time
 /// the preview draws. Preview scaffolding only -- in the app the button is what runs a test.
@@ -321,5 +498,26 @@ private let previewUnauthorizedAttempt = PingAttempt(
         PreviewTestedSettings(hasStoredKey: true, attempt: previewUnauthorizedAttempt)
     }
     .preferredColorScheme(.dark)
+    .environment(\.dynamicTypeSize, .accessibility5)
+}
+
+#Preview("Light — all triggers on, notice") {
+    NavigationStack {
+        PreviewSettingsWithTriggers(
+            hasStoredKey: true,
+            triggerSettings: previewAllTriggersOnWithNotice,
+            notice: TriggerAuthorizationNotice.notice(
+                for: .authorizedWhenInUse, alwaysWasRequested: true))
+    }
+}
+
+#Preview("Light — all triggers on, notice, AX5") {
+    NavigationStack {
+        PreviewSettingsWithTriggers(
+            hasStoredKey: true,
+            triggerSettings: previewAllTriggersOnWithNotice,
+            notice: TriggerAuthorizationNotice.notice(
+                for: .authorizedWhenInUse, alwaysWasRequested: true))
+    }
     .environment(\.dynamicTypeSize, .accessibility5)
 }

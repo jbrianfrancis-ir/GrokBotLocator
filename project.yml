@@ -14,8 +14,26 @@ targets:
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: NO
-        CODE_SIGN_IDENTITY: "-"
+        # Signing is SDK-CONDITIONAL, and it has to be. A plain
+        # `CODE_SIGN_IDENTITY: "-"` is a TARGET setting, so it overrode
+        # Signing.xcconfig and told Xcode's Signing & Capabilities editor that
+        # development signing was off -- the editor then refused to manage a
+        # profile at all ("requires a provisioning profile. Enable development
+        # signing..."), which made a device build impossible from the GUI. The
+        # command line could only get past it by overriding the same key.
+        #
+        # Simulator keeps ad-hoc so the smoke gate needs no team, no cert and no
+        # profile; device builds get real development signing. DEVELOPMENT_TEAM
+        # still comes ONLY from the gitignored Signing.xcconfig (ARCHITECTURE
+        # forbids it, and a bundle id, entering the repo) -- nothing here names
+        # a team or an identity value beyond Apple's own generic identity name.
+        CODE_SIGN_IDENTITY[sdk=iphonesimulator*]: "-"
+        CODE_SIGN_IDENTITY[sdk=iphoneos*]: "Apple Development"
+        CODE_SIGN_STYLE: Automatic
         CODE_SIGN_ENTITLEMENTS: GrokBotLocator.entitlements
+        # App Store Connect rejects a build with no app icon, so TestFlight (the
+        # no-cable install path) needs this even though a development install does not.
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     configFiles:
       Debug: Signing.xcconfig
       Release: Signing.xcconfig
@@ -23,15 +41,34 @@ targets:
       path: GrokBotLocator/Info.plist
       properties:
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        # App Store Connect requires BOTH of these and rejects an upload missing either.
+        # `CFBundleVersion` is the one that must increase on every TestFlight upload;
+        # `CFBundleShortVersionString` is the human-facing version and may repeat.
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "1"
+        # Required explicitly because GENERATE_INFOPLIST_FILE is NO -- Xcode injects this
+        # key automatically only for generated plists, and a missing one reads as "no icon".
+        CFBundleIconName: AppIcon
         # Without a UILaunchScreen, iOS runs the app letterboxed in compatibility mode and
         # never hands it the full screen. The empty dict opts in.
         UILaunchScreen: {}
         # The system location prompt's text comes from here -- a one-shot, point-of-use
-        # fix only, so this is the When-In-Use key. Always arrives with phase 04's triggers.
+        # fix only, so this is the When-In-Use key.
         NSLocationWhenInUseUsageDescription: "GrokBotLocator reads your location only when you tap I'm here, and sends it to the Grok webhook you configured."
-        # BGAppRefreshTask's supplementary opportunistic queue drain (REQ-05) needs the fetch
-        # background mode declared or BGTaskScheduler registration is refused outright.
-        UIBackgroundModes: [fetch]
+        # Always unlocks automatic triggers (REQ-06/07/08): significant-change updates, visits,
+        # and CLMonitor region events all need Always authorization to fire while the app is not
+        # running. Manual pings still work at When In Use alone (ARCHITECTURE: "Fully usable at
+        # When In Use"). Do NOT add the iOS-10-deprecated NSLocationAlwaysUsageDescription
+        # alongside this one (RESEARCH Q4).
+        NSLocationAlwaysAndWhenInUseUsageDescription: "GrokBotLocator sends your location to your Grok webhook automatically when you move or arrive somewhere -- only while the triggers you switched on in Settings are on."
+        # `location` is the WAKE-based UIBackgroundModes mode required for significant-change,
+        # visits and CLMonitor region events (REQ-06/07/08); iOS has only one `location` string,
+        # so this is the same string a continuous-GPS app would declare. ARCHITECTURE's Forbidden
+        # entry bans the startUpdatingLocation + allowsBackgroundLocationUpdates CALL PATTERN, not
+        # this plist key, and scripts/smoke.sh's location guard still rejects that pattern outright
+        # regardless of this key. `fetch` stays for BGAppRefreshTask's supplementary opportunistic
+        # queue drain (REQ-05); without it BGTaskScheduler registration is refused outright.
+        UIBackgroundModes: [location, fetch]
         # A build-setting REFERENCE, never a literal bundle id (ARCHITECTURE Forbidden).
         BGTaskSchedulerPermittedIdentifiers: ["$(PRODUCT_BUNDLE_IDENTIFIER).queue-drain"]
 

@@ -81,7 +81,8 @@ struct PingHistoryTests {
     private static func makeEntry(
         id: UUID = UUID(),
         outcome: PingOutcome = .sent,
-        reason: String? = nil
+        reason: String? = nil,
+        trigger: PingTrigger? = nil
     ) -> PingHistoryEntry {
         PingHistoryEntry(
             id: id,
@@ -90,7 +91,8 @@ struct PingHistoryTests {
             longitude: 17.23107,
             label: "Manual ping",
             outcome: outcome,
-            reason: reason
+            reason: reason,
+            trigger: trigger
         )
     }
 
@@ -139,7 +141,8 @@ struct PingHistoryTests {
     private static func makeUpdate(
         id: UUID,
         outcome: PingOutcome = .sent,
-        reason: String? = nil
+        reason: String? = nil,
+        trigger: PingTrigger? = nil
     ) -> PingDeliveryUpdate {
         PingDeliveryUpdate(
             id: id,
@@ -148,7 +151,8 @@ struct PingHistoryTests {
             longitude: 17.23107,
             label: "Manual ping",
             outcome: outcome,
-            reason: reason
+            reason: reason,
+            trigger: trigger
         )
     }
 
@@ -200,5 +204,44 @@ struct PingHistoryTests {
         }
 
         #expect(log.entries.count == PingHistoryLog.capacity)
+    }
+
+    // MARK: - PingTrigger (REQ-07)
+
+    /// The rule that keeps an arrival marking alive across a delayed drain: an arrival ping
+    /// recorded offline carries `.arrival` immediately, and the delivery update that arrives a
+    /// wake later carries no trigger of its own -- without this the drain would quietly erase
+    /// REQ-07's marking.
+    @Test
+    func aDeliveryUpdateWithNoTriggerKeepsTheRowsExistingTrigger() {
+        var log = PingHistoryLog()
+        let entry = Self.makeEntry(outcome: .queued, trigger: .arrival)
+        log.record(entry)
+
+        log.apply(Self.makeUpdate(id: entry.id, outcome: .sent, trigger: nil))
+
+        #expect(log.entries[0].outcome == .sent)
+        #expect(log.entries[0].trigger == .arrival)
+    }
+
+    @Test
+    func aDeliveryUpdateCanSetATriggerOnARowThatHadNone() {
+        var log = PingHistoryLog()
+        let entry = Self.makeEntry(outcome: .queued, trigger: nil)
+        log.record(entry)
+
+        log.apply(Self.makeUpdate(id: entry.id, outcome: .sent, trigger: .geofenceExit))
+
+        #expect(log.entries[0].trigger == .geofenceExit)
+    }
+
+    /// Symbol AND word for every case, never one alone (DESIGN.md).
+    @Test
+    func everyTriggerHasAWordAndASymbol() {
+        for trigger in PingTrigger.allCases {
+            #expect(!trigger.word.isEmpty)
+            #expect(trigger.word == trigger.word.trimmingCharacters(in: .whitespaces))
+            #expect(!trigger.symbolName.isEmpty)
+        }
     }
 }

@@ -1,6 +1,15 @@
 <!-- .planning/LEARNINGS.md — cap 20 bullets; consolidate oldest when over. -->
 # Learnings
 
+- A grep guard is a net, not a proof, and every change to one needs an ESCAPE probe — a plausible
+  violation added in a NEW place — not a deletion probe. Five holes have shipped here despite the
+  rules being right: a whole-line filter escaped on that same line, `@AppStorage` never saying
+  "UserDefaults", `CLBackgroundActivitySession` never saying `CLLocationManager`, an anchored
+  `.font(` missing `.system(size:)` on the next line, and a multiline `data.write(`. Phase 04
+  added the fix: exclude a permitted file by anchoring on grep's own `^path:lineno:` prefix, which
+  no line's CONTENT can forge — never by filtering lines that merely mention the filename. Its 13
+  probes caught the plan's own comment-strip reintroducing the same-line hole; keep both must-FAIL
+  and must-PASS probes, since a guard that rejects everything also "passes" every failure probe.
 - `JSONEncoder` does not serialize in `CodingKeys` or declaration order — key order is
   non-deterministic per process (proven over six runs on the iOS 26 simulator runtime). Any
   claim about wire key order needs bytes composed by hand; `.sortedKeys` yields
@@ -14,9 +23,6 @@
 - Whole-file presence greps count comment text: doc comments naming `dsChrome` pushed a
   `grep -c` from 1 to 5, and a comment containing `CLLocationManager` failed the location
   guard outright.
-- A guard that filters whole lines can be escaped on that line. smoke.sh's UserDefaults guard
-  dropped any line mentioning `UserDefaultsPingLabelStore`, so a real `UserDefaults` call
-  beside it passed clean (the verifier probed it). Strip the allowed token, then match.
 - Retryable sends record `.failed` with a reason, never `.queued`: `PendingPingSink` is wired
   and tested but drains nothing. Phase 03 swaps the sink AND flips that arm in
   `PingModel.ping()`.
@@ -35,11 +41,6 @@
   100MB response satisfies any duration bound and still OOM-kills the app. Needs a byte budget
   (`expectedContentLength` or `session.bytes(for:)`) plus truncation before `String(decoding:)`
   and before rendering — and REQ-11 renders the body verbatim, so the view is in scope too.
-- A guard written as a grep needs its own negative test. Four holes shipped in this repo's guards
-  despite the rules being right: a line-level filter could be escaped on that line, `@AppStorage`
-  never says "UserDefaults", `CLBackgroundActivitySession` never says "CLLocationManager", and an
-  anchored `.font(` pattern misses `.system(size:)` on the next line. A guard with no probe only
-  proves nobody has yet written the string it happens to match.
 - Parallel executors in ONE checkout cannot commit safely, and explicit-path staging does not
   save them: the git *index* is shared, so `git commit` takes a sibling's already-staged files
   no matter how careful your own `git add` was. Phase 03 wave 2 hit this 4x — 03-01 staged two
@@ -68,13 +69,6 @@
 - A test that pins an implemented choice is not the same as a rule. All three of phase 03's
   backstop truths HAVE tests; they stop drift, they do not settle whether the choice is right.
   An abstention is lifted by a human stating the rule, never by a green test.
-- Probe a guard by ESCAPE, not by absence. Phase 03's guards were all probed by deleting the
-  thing they protect, which only proves they notice a removal. PR review probed the other way —
-  adding a second coordinate writer the guard should catch — and four shapes walked straight
-  past: `write(toFile:)`, `FileHandle`, a `data.write(` split across two lines, and
-  `@preconcurrency import Network`. The multiline one is the SAME hole smoke.sh's own header
-  comment documents, reintroduced in a guard written after that learning. A grep guard is a net,
-  not a proof, and it should say so.
 - An actor serializes entry, not a call: it is reentrant at every `await`. `PingQueueDrain` had
   THREE read-modify-write holes of that shape — drain-vs-drain (delivered twice), drain-vs-enqueue
   (a ping queued mid-drain erased while its row read Queued), and a swallowed delta write
@@ -85,3 +79,36 @@
   (correct, it stopped a locked device destroying the queue) turned the drain's `try?` from a
   hypothetical into an ordinary path. Re-run the lens that owns the neighbouring code after a
   fix, not only the lens that reported it.
+- A bound that depends on a vendor API honouring `cancel()` is not a bound. `MKReverseGeocodingRequest.mapItems`
+  did NOT resume on `cancel()` with no service reachable: `withTaskGroup` awaits every child, so the
+  abandoned fetch hung the caller forever (leaked continuation) — found by a real 18-minute hang, not by
+  review, after a plan-checker had passed the construction. The shape that works is an unstructured,
+  never-awaited task plus a `Mutex`-guarded one-shot continuation: bounded BY CONSTRUCTION. Copy that
+  for any "race X against a timeout", never `withTaskGroup`.
+- Persisting a setting, displaying it, and enforcing it are three separate wirings. Phase 04 did the
+  first two for REQ-09's minimum interval and missed the third: the value was clamped, stored and drawn
+  on screen while `PingRateLimiter.setMinimumInterval` had zero callers, so the gate kept its default
+  for the process life. 257 tests were green over it because the requirement's literal acceptance clause
+  still passed. When a value is stored in one type and enforced in another, a plan must NAME the call
+  that carries it across, and the test must assert the ENFORCER's behaviour, not the stored value —
+  every fake limiter in the suite returned `.allowed`, so only the real actor could have caught it.
+- Serialized execution fixes the crossed-attribution defect that parallel waves cause. Phase 03 crossed
+  authorship 4x in one wave because executors share a git INDEX even when `files_modified` are disjoint;
+  phase 04 ran all 14 plans one at a time and every `DevFlow-Plan` trailer matches its own plan's commits,
+  zero crossings. The cost is wall-clock only.
+- A durable grant and the live session that makes it effective are two different lifetimes, and one
+  condition cannot gate both. REQ-08 never fired because `CLServiceSession` creation lived inside
+  `requestAlways()` behind `!= .authorizedAlways`: a cold relaunch of an already-granted app had
+  nothing to request, so it held no session either, and Always was inert for the whole process. The
+  suite could not see it — every fake source defaulted to `.authorizedWhenInUse`, so the skipped
+  branch was never once executed by 267 green tests. When a default in a test fake decides which
+  branch runs, the other branch is untested: give the fake a PARAMETER for the state that is normal
+  in production (already authorized, already migrated, already cached) and drive both.
+- When a trigger does not fire, read the OS's own log before theorising about your code.
+  `xcrun simctl spawn <udid> log show --last 5m` carries `locationd`'s per-fence state machine:
+  fence identity, radius, distance, raw `status (Inside) => (Outside)`, and a separate `settled
+  state` with an `sCount`. Four REQ-08 runs and two wrong hypotheses (first "CLMonitor does not
+  deliver", then a retraction) were settled in one read: the fence WAS armed correctly and the OS
+  had computed the crossing, but `sCount` never left 0 so it never promoted it to a delivered
+  event — the simulator's ~15 s synthetic fixes never satisfy the settling logic. Also: `print` +
+  `simctl launch --console-pty` captured nothing when backgrounded; `NSLog` + the unified log did.

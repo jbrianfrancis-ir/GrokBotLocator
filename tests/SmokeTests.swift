@@ -12,7 +12,8 @@ import Testing
     let settingsModel = SettingsModel(
         store: KeychainCredentialStore(service: "smoke-test-appModuleIsLinked"))
     let pingModel = PingModel(
-        sender: NoopPingSender(), labelStore: NoopPingLabelStore(), fixes: NoopFixProvider())
+        sender: NoopPingSender(), labelStore: NoopPingLabelStore(), fixes: NoopFixProvider(),
+        rateLimiter: NoopRateLimiter(), now: { Date() })
     let root = RootView(pingModel: pingModel, settingsModel: settingsModel)
     #expect(type(of: root) == RootView.self)
 }
@@ -22,6 +23,10 @@ import Testing
 private struct NoopPingSender: PingSending {
     func send(label: String) async -> PingAttempt {
         PingAttempt(fix: nil, disposition: .sent, statusCode: nil, responseBody: nil)
+    }
+
+    func send(label: String, using fix: LocationFix) async -> PingAttempt {
+        PingAttempt(fix: fix, disposition: .sent, statusCode: nil, responseBody: nil)
     }
 }
 
@@ -33,4 +38,9 @@ private struct NoopPingLabelStore: PingLabelStore {
 private struct NoopFixProvider: LocationFixProvider {
     func currentFix() async throws -> LocationFix { throw LocationFixError.notAuthorized }
     func authorizationNotice() async -> String? { nil }
+}
+
+private struct NoopRateLimiter: PingRateLimiting {
+    func claim(at now: Date) async -> RateLimitDecision { .allowed }
+    func setMinimumInterval(_ seconds: TimeInterval) async {}
 }

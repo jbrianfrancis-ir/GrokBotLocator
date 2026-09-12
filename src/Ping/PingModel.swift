@@ -31,6 +31,12 @@ final class PingModel {
     private let sender: PingSending
     private let labelStore: PingLabelStore
     private let fixes: LocationFixProvider
+    /// The single gate REQ-09/SC-04 counts every ping through -- manual and automatic together.
+    /// No default: LEARNINGS records that a defaulted dependency is how a bounded one got
+    /// quietly replaced by an unbounded one, so the composition root must name it explicitly.
+    private let rateLimiter: any PingRateLimiting
+    /// No default, for the same reason as `rateLimiter` -- the composition root names the clock.
+    private let now: @Sendable () -> Date
 
     /// Written back to `labelStore` on every change (REQ-03's write half). Seeding this from
     /// `labelStore.loadLabel()` in `init` below goes through `@Observable`'s generated
@@ -74,10 +80,15 @@ final class PingModel {
     }
 
     /// Argument labels and order are pinned -- 02-13's call site writes them verbatim.
-    init(sender: PingSending, labelStore: PingLabelStore, fixes: LocationFixProvider) {
+    init(
+        sender: PingSending, labelStore: PingLabelStore, fixes: LocationFixProvider,
+        rateLimiter: any PingRateLimiting, now: @escaping @Sendable () -> Date
+    ) {
         self.sender = sender
         self.labelStore = labelStore
         self.fixes = fixes
+        self.rateLimiter = rateLimiter
+        self.now = now
         self.label = labelStore.loadLabel()
     }
 
@@ -96,6 +107,20 @@ final class PingModel {
         isInFlight = true
         defer { isInFlight = false }
         guidance = nil
+
+        // The same shape as the no-fix branch below: nothing was sent, so nothing is logged, and
+        // the user is told on screen and in speech rather than left with a button that did
+        // nothing. The claim happens BEFORE the send, so a refused tap does not consume a slot
+        // twice -- this is the one gate REQ-09/SC-04 counts both manual and automatic pings
+        // through.
+        switch await rateLimiter.claim(at: now()) {
+        case .allowed: break
+        case .tooSoon(_, let reason):
+            guidance = reason
+            attemptSequence += 1
+            lastAttempt = PingAttemptFeedback(sequence: attemptSequence, outcome: .failed, reason: reason)
+            return
+        }
 
         let attempt = await sender.send(label: label)
 
@@ -123,7 +148,7 @@ final class PingModel {
                 PingHistoryEntry(
                     id: attempt.queuedID ?? UUID(), timestamp: fix.timestamp,
                     latitude: fix.latitude, longitude: fix.longitude,
-                    label: label, outcome: outcome, reason: reason))
+                    label: label, outcome: outcome, reason: reason, trigger: .manual))
         } else {
             // No fix means no coordinates to list -- record nothing, and explain why instead.
             guidance = reason

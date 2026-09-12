@@ -13,6 +13,10 @@ struct PingOutcomeRow: View {
     /// Why a `.failed` row failed, as a finished sentence. Defaulted, so a `.sent` row -- which
     /// never has one -- and every existing call site keep their shorter initialiser.
     var reason: String? = nil
+    /// What produced this ping (REQ-07), or `nil` when not recorded -- a row hydrated from the
+    /// offline queue carries no trigger, and renders no trigger line at all rather than
+    /// claiming "Manual". Defaulted, so every existing call site keeps its shorter initialiser.
+    var trigger: PingTrigger? = nil
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -25,6 +29,10 @@ struct PingOutcomeRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: DSMetrics.spacingBase) {
             outcomeBadge
+
+            if let trigger {
+                triggerLine(trigger)
+            }
 
             // Body size, not `.secondary`: DESIGN.md requires a failure to say what happened and
             // what to do next in body-size text on screen, and `.secondary` would put a failure
@@ -53,14 +61,34 @@ struct PingOutcomeRow: View {
         .accessibilityLabel(spokenText)
     }
 
-    /// What VoiceOver reads for the whole row: outcome, label, coordinates, and -- when the row
-    /// carries one -- the reason. The reason has to be in here, not only in the `Text` above:
-    /// a failure sentence that is drawn but not spoken is visual-only, which is exactly what
-    /// DESIGN.md's "errors state what happened and what to do next" rules out.
+    /// What VoiceOver reads for the whole row: outcome, the trigger (when recorded), label,
+    /// coordinates, and -- when the row carries one -- the reason. The reason has to be in here,
+    /// not only in the `Text` above: a failure sentence that is drawn but not spoken is
+    /// visual-only, which is exactly what DESIGN.md's "errors state what happened and what to do
+    /// next" rules out. The trigger is spoken right after the outcome for the same reason: drawn
+    /// only is not enough (DESIGN.md).
     private var spokenText: String {
-        var parts = ["\(outcome.word): \(label)", coordinateText]
+        let outcomePart: String
+        if let trigger {
+            outcomePart = "\(outcome.word), \(trigger.word): \(label)"
+        } else {
+            outcomePart = "\(outcome.word): \(label)"
+        }
+        var parts = [outcomePart, coordinateText]
         if let reason { parts.append(reason) }
         return parts.joined(separator: ". ")
+    }
+
+    /// Symbol + word together, never one alone (DESIGN.md), sized off the secondary token and
+    /// placed directly under the outcome badge and above the reason.
+    private func triggerLine(_ trigger: PingTrigger) -> some View {
+        HStack(spacing: DSMetrics.spacingBase) {
+            Image(systemName: trigger.symbolName)
+                .accessibilityHidden(true)
+            Text(trigger.word)
+                .dsFont(.secondary)
+        }
+        .foregroundStyle(DSPalette.secondary.foreground(for: colorScheme))
     }
 
     /// Symbol + word on the outcome's own opaque fill -- the pair DesignSystemContrastTests
@@ -136,7 +164,8 @@ private struct PingOutcomeRowPreviewStack: View {
                     latitude: 40.77465,
                     longitude: 17.23107,
                     label: "Automatic ping — left region",
-                    outcome: .queued
+                    outcome: .queued,
+                    trigger: .arrival
                 )
                 PingOutcomeRow(
                     timestamp: Date(timeIntervalSince1970: 1_700_001_200),

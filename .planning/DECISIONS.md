@@ -1,5 +1,77 @@
 # Decisions
 
+## 2026-09-12 · checkpoint-decision (D-20) — bundle id renamed to clear a team collision
+- **asked**: With the paid team's Development cert renewed and Xcode signed in, Apple refused to
+  register the App ID: "the app identifier com.bfrancis.grokbotlocator cannot be registered to
+  your development team because it is not available." Cause is on record — the 2026-09-10 evidence
+  entry notes phase 01's device test had Xcode issue a 7-day profile for that exact id under the
+  FREE personal team, and an App ID is globally unique, so the paid team could not claim it.
+  Free the identifier from the personal team, or rename?
+- **answered**: RENAME. `PRODUCT_BUNDLE_IDENTIFIER = com.bfrancis.grokbotlocator.trip`, chosen for
+  speed with the trip deadline in view — no portal surgery, no dependence on Apple releasing an
+  identifier promptly, and no need to work out which of two personal teams held it.
+- **note**: the rename cost one line in the gitignored `Signing.xcconfig` and touched NO tracked
+  file, because ARCHITECTURE's ban on a literal bundle id in `src/`/`project.yml`/`scripts/` meant
+  nothing hardcoded it. Verified before changing, not assumed: `grep` found zero occurrences in
+  shipping code or config, and both derived identifiers follow the variable —
+  `keychain-access-groups = $(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)` and
+  `BGTaskSchedulerPermittedIdentifiers = $(PRODUCT_BUNDLE_IDENTIFIER).queue-drain`. Both resolved
+  correctly in the SIGNED build. **This is the rule paying for itself**: the same rename against a
+  hardcoded id would have been a multi-file edit with a silent-breakage risk in the background-task
+  registration.
+  Consequences accepted: iOS treats this as a different app, so anything saved under the old id
+  does not carry over (nothing on the device mattered), and this is now the permanent id including
+  for TestFlight. The original identifier stays registered to the personal team; freeing it later
+  is optional cleanup, not required work.
+- **by**: owner (chose "Rename it" at the gate)
+- **at**: phase 04 (verification) · amends only the gitignored Signing.xcconfig
+
+## 2026-09-12 · evidence — DEVICE INSTALL SUCCEEDED, 365-day profile
+- **asked**: N/A — closes the blocker logged in the 2026-09-12 signing entry.
+- **answered**: Installed on the iPhone 16 Pro Max (iOS 26.6.2) as
+  `com.bfrancis.grokbotlocator.trip`. Release build, signed by the PAID team's renewed Apple
+  Development cert, profile "iOS Team Provisioning Profile: *" **created 2026-09-12, expires
+  2027-09-12 — 365 days**. D-03's stranded-mid-trip risk is closed: the 7-day free-team profile is
+  no longer in play.
+  Verified in the signed artefact rather than inferred: `application-identifier` carries the real
+  team prefix (so Keychain works on device), `BGTaskSchedulerPermittedIdentifiers` resolved to
+  `...trip.queue-drain`, and both version keys are present for TestFlight.
+  Getting here also surfaced a three-phase-old defect: `CODE_SIGN_IDENTITY: "-"` as a TARGET
+  setting overrode `Signing.xcconfig` and disabled development signing in Xcode's editor, so the
+  committed config could not build for a device at all. Now SDK-conditional.
+- **by**: Claude (build and verification); the Apple ID sign-in and cert renewal were the human's
+- **at**: phase 04 (verification)
+
+## 2026-09-12 · evidence — the paid team is already configured; its Development cert has EXPIRED
+- **asked**: N/A — user asked to "switch the signing config to the paid team". Nothing to switch:
+  `Signing.xcconfig` has held the paid signing team since D-03 (2026-09-09 19:30). The real blocker
+  is a certificate, and it is now measured rather than assumed.
+- **answered**: Certificates were read by their Organizational Unit, which IS the Team ID — NOT
+  the parenthetical in the CN, which the 2026-09-10 entry already warned is a certificate
+  identifier. By OU, on this Mac:
+  - Apple **Development** for the paid signing team — **EXPIRED 2025-12-16** (9 months ago). The team
+    has supported development signing before, so renewing is a known-good path.
+  - Apple **Distribution** for the paid signing team — valid to 2027-07-30. Cannot sign an ordinary
+    development build; it is for App Store / TestFlight / Ad Hoc.
+  - The only VALID Apple Development certs belong to two OTHER teams (personal). The 2026-09-10
+    evidence entry measured a personal team as FREE: a 7-day profile. D-03's "stranded mid-trip"
+    risk therefore applies to every currently-usable Development cert.
+  - `IDEProvisioningTeams` is empty — **no Apple ID is signed into Xcode**, so Xcode cannot mint a
+    replacement cert or profile unattended.
+- **note**: so the app CANNOT currently be installed on a device in a form that survives two
+  weeks, and no change under `src/` or `project.yml` can fix that. Three human paths, in order of
+  directness: (1) sign into Xcode with an account holding Developer/Admin role in the paid org and
+  mint a new Apple Development cert — 1-year profile; a plain "Member" role cannot do this and
+  needs an org admin; (2) TestFlight, which uses the Distribution cert that IS valid — 90-day
+  builds, over-the-air updates, no cable, but needs App Store Connect access to that org;
+  (3) a personal paid membership (~$99/yr), which avoids org-team permissions entirely.
+  Per the 2026-09-09 21:55 decision, device signing is applied as **xcodebuild command-line
+  overrides** — `Signing.xcconfig` and `project.yml` are deliberately NOT modified, so the
+  committed configuration stays the paid team with ad-hoc simulator signing. That pattern is
+  unchanged here: nothing was edited.
+- **by**: Claude (evidence gathered; the call itself is the human's)
+- **at**: phase 04 (verification) · no files modified
+
 ## 2026-09-09 19:20 · checkpoint-decision
 - **asked**: Phase-1 plans had defects I proved empirically and /flow-plan's 3-round revision budget was spent. Resolve by (1) applying the fixes directly, (2) a fresh planner + checker round, (3) executing as-is, or (4) a /flow-oracle second opinion?
 - **answered**: Option 1 — apply the fixes directly. Also supplied the signing Team ID source (the iOS app in SpecialProjects.StudentLoans) and resolved the open sender-key question: show a "key saved" indicator rather than exposing the credential.
@@ -93,3 +165,31 @@
 - **note**: all three backstop truths are now stated in REQUIREMENTS.md, so they are inferable and no longer abstentions — `PingClassifierTests` was renamed from `theUndecided4xxRangeIsPermanent` to `a4xxThatCannotSucceedLaterIsPermanent` and gained `theTwoTemporary4xxCodesAreRetryable`, because those tests now pin a stated rule rather than merely recording what the code happened to do. Only (1) changed behaviour; (2) and (3) confirmed what shipped. The ARCHITECTURE amendment does NOT relax the build-side rule, which 03-11 proved and smoke still guards.
 - **by**: owner
 - **at**: 64f7b7d · phase 03 (acceptance) · amends REQUIREMENTS.md and ARCHITECTURE.md
+
+## 2026-09-11 15:00 · pr-upstream
+- **asked**: `/flow-pr` opened PR #4 ("Phase 03: durable delivery — offline queue, backoff retry, and the `at` wire key") against `main` and stopped: review and merge are human. The PR body named two defects it had deliberately NOT fixed because each needs a ruling a subagent may not make. (1) `QueueDrainCoordinator.hydrate()` copies queue entries into `PingHistoryLog`, which `ARCHITECTURE.md:72` forbids — D-12 sanctioned the queue file as the *one* coordinate store precisely on the condition that entries are "never copied anywhere else" — so fixing it in either direction edits a Forbidden clause. (2) When the queue cannot be opened, `UnqueuedPingSink` relabels a retryable disposition as permanent, so D-14's newly-retryable 429 renders to the user as *"Failed: it is waiting and will be sent again."* — a sentence that contradicts itself, and nothing is in fact waiting. It also listed known thin spots: nothing seen at AX5, SC-06 unmeasured after D-13's type cut, two REQ-05 drain paths never exercised, file protection proven by grep not at runtime, no trigger on the backoff schedule, and knowingly-wrong commit attribution on `9441a8f`/`809eccd` from wave 2's shared git index.
+- **answered**: MERGED AS-IS, both open items unresolved. Merged 2026-09-11T15:00:56Z as `c83a2c8` with no review comment and no change requested — so the two "needs a decision" items and every listed thin spot entered `main` exactly as the PR described them. Recorded here rather than treated as settled: a merge is an authorization to integrate, not an answer to the questions the branch asked.
+- **note**: both open items are now carried in `ROADMAP.md` under phase 04 so the merge could not silently absorb them, and neither blocks phase 04 planning. (1) is a law-vs-code contradiction — ARCHITECTURE is binding, and today the shipped `hydrate()` violates it; the ruling is *which* of the two changes, the clause or the call. (2) is user-facing and cheap. Phase 02's eleven acceptance checks remain open and independently unclosed.
+- **by**: owner
+- **at**: c83a2c8 · phase 03 · PR #4
+
+## 2026-09-11 16:05 · checkpoint-decision (D-15)
+- **asked**: Phase 04 planned clean (13 plans, checker PASS) but could not build one of its stated deliverables. `REQUIREMENTS.md` carried an open `[NEEDS CLARIFICATION]` marker on the geocoder API that said in its own text "confirm before phase 4 plans". Research settled the fact: `CLGeocoder`/`CLPlacemark` are soft-deprecated at iOS 26.0 with Apple's own annotation message "Use MapKit", and the replacement `MKReverseGeocodingRequest` lives in **MapKit** — a framework absent from `ARCHITECTURE.md`'s `## Frameworks & libraries` list, which this project treats as a closed allowlist. That left the fact settled and the authorization open, so the phase was planned to ship EMPTY labels behind a `TriggerLabelProviding` protocol with the single file a "yes" would add named in advance. Three options: (1) add MapKit to the Frameworks list and ship reverse-geocoded labels as REQ-06/07/08 specify; (2) ship empty labels and defer the label half; (3) use `CLGeocoder` anyway, no ARCHITECTURE edit, building on an API Apple says to stop using.
+- **answered**: OPTION 1 — ADD MAPKIT. Verbatim: "gate 1 - add MapKit - architecture should not be restricting you to deprecated tools". The stated principle is the substance of the ruling and is recorded as such: ARCHITECTURE's closed allowlist exists to keep third-party dependencies and unsanctioned stores out, not to pin the app to superseded first-party APIs. Where the SDK moves an API, the list moves with it. MapKit is first-party Apple SDK, so "Zero third-party dependencies" is untouched.
+- **note**: scope was deliberately narrowed rather than taken as blanket approval. MapKit is authorized for reverse geocoding ONLY: a new Forbidden entry bans importing it anywhere but `src/Triggers/MapKitTriggerLabelProvider.swift`, so a map view, map tiles, or MapKit types leaking into the ping path remain out of bounds and a guard can enforce it. `REQUIREMENTS.md`'s marker is replaced with the decision, and two properties are now stated there rather than left implicit: the label is best-effort (an empty label is a normal outcome and never delays or drops a ping — geocoding stays off the delivery critical path), and reverse geocoding **sends a coordinate to Apple's geocoding service**. That egress is inherent to the feature and is not "storing or logging" under the Forbidden entry, but it is real location-data egress and is recorded so it is a known property rather than a later discovery. Plans 04-01, 04-04 and 04-13 were written to keep MapKit OUT of `src/` and must now be revised; the other ten are unaffected. Three rulings remain open and were NOT answered here: documenting `UIBackgroundModes: location` as compliant, and PR #4's two carried decisions (`hydrate()` vs D-12, `UnqueuedPingSink` calling a 429 permanent).
+- **by**: owner
+- **at**: 531dce3 · phase 04 (planning) · amends ARCHITECTURE.md and REQUIREMENTS.md
+
+## 2026-09-11 17:05 · checkpoint-decision (D-16)
+- **asked**: A machine-driven simulator run found that on a cold relaunch with ONLY the geofence trigger enabled, the region can never arm. `reference` is in-memory and nil in a fresh process; `applySettings` registers only `if currentCentre() == nil, let reference` (`TriggerCoordinator.swift:121-122`); and the sole recovery from `geofence.currentCentre()` sits inside `runSignificantChange` (`:187-192`), which is disabled in that configuration. Geofence-only is a supported setup — REQ-09 ships per-trigger toggles precisely so a user can choose it. Recovering the last-ping position across a relaunch means STORING a coordinate, and `ARCHITECTURE.md`'s Forbidden entry bans that with exactly one narrow exception (D-12, the queue file, "never copied anywhere else"). `GeofenceMonitor.swift`'s own header states the current premise: the registered region IS the durable record, "rather than this app keeping a second coordinate file" — a premise that only holds if `CLMonitor` persists its conditions, which `RESEARCH.md` lists as UNVERIFIED (inferred from the async init signature and community sources, not Apple's DocC prose). So: widen D-12, or leave REQ-08 unable to arm in a supported configuration?
+- **answered**: WIDEN D-12. Verbatim: "widen D-12 as needed to recover teh last-ping position". Authorized during phase 04 verification, after the gap was found by running the app rather than by review.
+- **note**: scoped narrowly rather than taken as blanket permission, in the same spirit as D-15. A SECOND sanctioned store is added — the single last-ping coordinate — under four binding conditions: (1) **exactly one coordinate, overwritten in place, never appended** — one overwritten point is not a location history, a list of them is, and that is precisely what D-12 exists to forbid; (2) excluded from backups, same as the queue; (3) protection class `.completeUntilFirstUserAuthentication`, **deliberately weaker** than the queue's `.completeFileProtectionUnlessOpen`; (4) deleted when every trigger is disabled, since nothing then needs the position. **The protection-class choice is a real security trade and is called out rather than buried**: a geofence exit fires while the phone is locked in a pocket, which is the entire point of the feature, and under complete protection the write would fail on exactly that wake and the region would never re-register — phase 03 already shipped the inverse of this bug, where a locked device could not open the queue and the drain declared the pings undeliverable. If the reviewer prefers the stronger class and accepts that re-registration silently stops while locked, that is a one-line change and should be ruled on explicitly. This decision does NOT settle whether `CLMonitor` persists; the gap plan still establishes that empirically, and if it does persist the durable file is belt-and-braces rather than load-bearing.
+- **by**: owner
+- **at**: 53c85b8 · phase 04 (verification) · amends ARCHITECTURE.md
+
+## 2026-09-11 17:40 · checkpoint-decision (D-17, D-18, D-19)
+- **asked**: Phase 04's verification carried three abstentions that no test could lift, each needing a stated rule. (1) `QueueDrainCoordinator.hydrate()` copies queue entries into `PingHistoryLog` so a relaunch shows what is still pending, which `ARCHITECTURE.md`'s D-12 clause forbids ("never copied anywhere else") — narrow the clause, or drop the copy and accept losing queued rows on relaunch. (2) With no queue available, `PingSender` relabels a retryable disposition `.permanentFailure` while `UnqueuedPingSink` supplies the classifier's own retryable sentence, so a 429 renders as "Failed: it is waiting and will be sent again." — a sentence that contradicts itself and undercuts D-14, which had just made 408/429 retryable. Write honest no-queue copy, or ratify the downgrade. (3) `MKReverseGeocodingRequest`'s throttling and offline contract is unverified — state what the app may assume, or ratify "any failure ⇒ empty label, bounded by construction".
+- **answered**: ALL THREE, verbatim: "1 approved / 2 downgrade ratified / 3 empty label". (1) **D-17** — the shipped `hydrate()` behaviour is approved and D-12's clause is narrowed. (2) **D-18** — the downgrade is ratified: with nothing holding the ping, it IS final for the user. (3) **D-19** — "any failure ⇒ empty label, bounded by construction" is the standing rule.
+- **note**: each was scoped rather than taken broadly. **D-17** narrows the ban to a second *durable* copy: reading queue entries into the in-memory, session-only history is display, not storage — it dies with the process and creates no second store. `UserDefaults`, logs and analytics stay off limits regardless of lifetime, and D-16's last-ping file remains the only other durable coordinate. **D-18 forces a copy change rather than settling for one.** Ratifying the downgrade affirms that nothing is waiting, which makes the shipped sentence provably false — it promises a retry that the ratified rule says will never happen. The classification stays; `UnqueuedPingSink.enqueue` must stop echoing the classifier's retryable sentence and supply its own honest one, which is what `PingSender.swift:146-150`'s own comment already assumes it does ("the sink supplied the sentence because only it knows what is safe to show"). **D-19** is deliberately an assumption-free rule: the app pins no numeric throttle and no specific error case, so the empirically-observed failure (a `cancel()` that did not resume `mapItems`, found by an 18-minute hang) is covered by the general rule rather than by a special case. All three now need tests pinning them — a stated rule with no test drifts back into an abstention.
+- **by**: owner
+- **at**: 96ebbc5 · phase 04 (verification) · amends ARCHITECTURE.md and REQUIREMENTS.md
