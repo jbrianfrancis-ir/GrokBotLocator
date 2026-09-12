@@ -1,7 +1,7 @@
 <!-- .planning/debug/NNN-slug.md — persistent debug state; resumable across sessions. -->
 ---
-status: open                # open | resolved
-symptom: REQ-08 still does not fire after debug/001 — a stale region is never corrected, and CLMonitor delivers no events on the simulator at all
+status: resolved            # open | resolved
+symptom: REQ-08 still does not fire after debug/001 — a stale region is never corrected (fixed), and the simulator's geofence never settles so no exit is ever delivered (platform)
 started: 2026-09-12
 ---
 
@@ -86,16 +86,61 @@ arming was not observed -- only inferred from the debug/002 fix plus a seeded re
 pre-existing region on an erased device. An instrumented run would close that, and is the one
 cheap thing left before blaming the platform.
 
+## INSTRUMENTED RUN — the region DOES arm, and locationd explains the silence (2026-09-12)
+`NSLog` probes on both trigger paths (reverted, not committed; `print` + `--console-pty` captured
+nothing, the unified log via `simctl spawn log show` did). Geofence + significant-change both on,
+reference seeded at 37.33260,-122.03032, 600 m interpolated route.
+
+**App side — every step works:**
+```
+PROBE: auth=3 (3=alwaysAuthorized)
+PROBE: beginAlwaysSession called            <- debug/001's fix, confirmed live
+PROBE: geofence branch entered
+PROBE: centre=37.3326,-122.03032  reference=37.3326,-122.03032
+PROBE: DID NOT register (centre already == reference)   <- debug/002's no-churn branch, correct
+PROBE: WITNESS sigchange fix 37.3326,-122.03032
+PROBE: WITNESS sigchange fix 37.337112599734624,-122.03032   <- 502 m, movement witnessed
+```
+No `EVENT` line and no `runGeofenceExit REACHED`: `CLMonitor` delivered nothing to the app.
+
+**locationd side — the region is registered, and the OS says why it stays quiet:**
+```
+Fence: fenceUpdate, com.bfrancis.grokbotlocator::GrokBotLocatorTriggers@last-ping-region,
+  bundle com.bfrancis.grokbotlocator, type GPS, distance 598, fence ... 150.0,
+  sCount 0, sinceLastLoc 15.0,
+  status (Inside) => (Outside)          [2 samples]
+  settled state (No) ==> (Unknown)      [25 samples]
+  settled state (Unknown) ==> (Unknown) [9 samples]
+```
+Across 34 fence samples: **`sCount` (settle count) never leaves 0 and the settled state never
+leaves `No`/`Unknown`** — even though raw `status` DID compute `(Inside) => (Outside)` twice.
+
+## Root cause of the remaining silence: the fence never SETTLES on the simulator
+iOS's geofence state machine keeps a raw status and a *settled* state, and only reports a
+transition to the app once the fence has settled. The simulator feeds synthetic fixes roughly
+every 15 s (`sinceLastLoc 15.0`), which never satisfies the settling logic, so `sCount` stays 0,
+the settled state stays `Unknown`, and locationd never promotes the Inside->Outside crossing it
+already computed into a delivered event.
+
+**This is a simulator limitation with a measured mechanism, not an app defect.** Arming,
+authorization, the service session, region identity and radius, and the app's view of the movement
+are all confirmed correct by the OS's own log. Nothing in `src/` can make the simulator settle a
+fence.
+
 ## Resolution
-**H2 (stale region) is fixed** on probe output plus a red-before/green-after unit test.
+**Arming is CONFIRMED — by locationd, not inferred.** The fence is registered under
+`GrokBotLocatorTriggers@last-ping-region` at radius 150.0, with Always authorization and the
+service session held. The open question from the previous section is closed.
 
-**REQ-08 is NOT verified and does not work on the simulator.** Four attempts across two
-simulator states, the last three on a freshly erased device with a witnessed 502 m of movement.
-Significant-change fired in the same conditions, on the same device, minutes apart -- so this is
-specific to the geofence path, not the environment and not location authorization.
+**The two code defects found here are real and fixed:** debug/001's missing `CLServiceSession`
+and debug/002's stale region never re-centred. Both verified live in this run — the session probe
+fired, and the no-churn branch correctly skipped a redundant re-registration when the region
+already sat on the reference.
 
-**REQ-06 is re-confirmed PASS** after today's three fixes (502 m, clean device, witnessed).
+**REQ-08 cannot be verified on the simulator, for a now-understood reason:** the fence never
+settles, so no exit is ever delivered. REQ-08's acceptance clause needs a real device, where
+continuous GPS settles the fence. Status: NOT VERIFIED, cause understood, no app-side work
+outstanding.
 
-**Next step is a real device, or one instrumented run** to prove/disprove arming in runs 2-3.
-For a personal-use install, significant-change is the working automatic path and the geofence is
-additive -- nothing here blocks shipping.
+**REQ-06 significant-change is unaffected and works** — it does not depend on fence settling,
+which is exactly why it fired in the same run that the geofence did not.
