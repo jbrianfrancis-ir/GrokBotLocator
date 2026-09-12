@@ -94,8 +94,9 @@ actor TriggerCoordinator {
         await applySettings(newSettings)
     }
 
-    /// Requests Always only when at least one trigger is enabled and the app is not already
-    /// authorized for it (REQ-10: never at launch with all three off). The three start/stop
+    /// Holds the Always service session whenever at least one trigger is enabled, and REQUESTS
+    /// Always only when the app is not already authorized for it (REQ-10: neither happens at
+    /// launch with all three off -- see the two-call split below). The three start/stop
     /// calls and the geofence registration are independent of whether that request succeeded --
     /// a refusal is reported through `authorizationNotice()`, not by silently leaving a trigger
     /// that IS switched on in Settings unarmed.
@@ -105,9 +106,25 @@ actor TriggerCoordinator {
         // disk) and `update(_:)` (the value a Settings change just persisted).
         await rateLimiter.setMinimumInterval(s.minimumIntervalSeconds)
 
-        if s.anyTriggerEnabled, await source.currentAuthorization() != .authorizedAlways {
-            _ = await source.requestAlways()
-            alwaysWasRequested = true
+        if s.anyTriggerEnabled {
+            // UNCONDITIONAL, above the request below (debug/001 -- REQ-08's runtime gap). An
+            // Always GRANT is durable across launches; the `CLServiceSession` that makes that
+            // grant effective is not -- it dies with the process. Gating session creation on
+            // "not already Always", as this did until now, meant a cold relaunch of an app that
+            // had been granted Always took NEITHER branch: nothing to request, so no session
+            // either, so RESEARCH Q2/Q5's "Always authorization will only be effective when you
+            // hold one of these" was never satisfied and no geofence exit was ever delivered.
+            // `start()` is a foreground touchpoint (see this type's header), which is what makes
+            // creating the session here legal at all.
+            await source.beginAlwaysSession()
+
+            // The PROMPT, still gated -- there is nothing to ask an already-authorized user, and
+            // `alwaysWasRequested` drives `authorizationNotice()`, so it must keep meaning "we
+            // actually asked" rather than "a trigger is on".
+            if await source.currentAuthorization() != .authorizedAlways {
+                _ = await source.requestAlways()
+                alwaysWasRequested = true
+            }
         }
 
         if s.significantChangeEnabled {

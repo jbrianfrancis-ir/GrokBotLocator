@@ -61,6 +61,13 @@ protocol LocationTriggerSource: Sendable {
     func startVisits() async
     func stopVisits() async
     func currentAuthorization() async -> CLAuthorizationStatus
+    /// Starts holding the Always service session if one is not held already, WITHOUT asking for
+    /// anything. Separate from `requestAlways()` because holding the session and being granted
+    /// the permission are two different things: a grant persists across launches, the session
+    /// does not survive the process. A cold relaunch that is ALREADY `.authorizedAlways` needs
+    /// this and needs no prompt -- which is exactly the case debug/001 found unarmed.
+    /// Idempotent: calling it while a session is held does nothing.
+    func beginAlwaysSession() async
     func requestAlways() async -> CLAuthorizationStatus
 }
 

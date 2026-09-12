@@ -96,3 +96,11 @@
   authorship 4x in one wave because executors share a git INDEX even when `files_modified` are disjoint;
   phase 04 ran all 14 plans one at a time and every `DevFlow-Plan` trailer matches its own plan's commits,
   zero crossings. The cost is wall-clock only.
+- A durable grant and the live session that makes it effective are two different lifetimes, and one
+  condition cannot gate both. REQ-08 never fired because `CLServiceSession` creation lived inside
+  `requestAlways()` behind `!= .authorizedAlways`: a cold relaunch of an already-granted app had
+  nothing to request, so it held no session either, and Always was inert for the whole process. The
+  suite could not see it — every fake source defaulted to `.authorizedWhenInUse`, so the skipped
+  branch was never once executed by 267 green tests. When a default in a test fake decides which
+  branch runs, the other branch is untested: give the fake a PARAMETER for the state that is normal
+  in production (already authorized, already migrated, already cached) and drive both.

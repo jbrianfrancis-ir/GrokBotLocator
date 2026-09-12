@@ -28,12 +28,17 @@ import Foundation
 final class LocationDelegateProxy: NSObject, @MainActor CLLocationManagerDelegate, LocationTriggerSource {
     private let manager = CLLocationManager()
 
-    /// Held for the lifetime of this proxy once Always is first requested. RESEARCH.md Q2/Q5,
+    /// Held for the lifetime of this proxy once ANY trigger is armed. RESEARCH.md Q2/Q5,
     /// quoting WWDC24's "What's new in location authorization": "Always authorization will only
     /// be effective when you hold one of these [`CLServiceSession`], and you can only start
-    /// holding one when your app is in the foreground." `requestAlways()` below is that
-    /// foreground touchpoint (reached only from Settings when a trigger is switched on); this
-    /// session, once created, is what is supposed to keep Always effective afterward.
+    /// holding one when your app is in the foreground." `beginAlwaysSession()` below is that
+    /// foreground touchpoint; this session, once created, is what is supposed to keep Always
+    /// effective afterward.
+    ///
+    /// It is deliberately NOT created inside `requestAlways()` any more (debug/001). A grant is
+    /// durable and a session is not: a cold relaunch of an app already holding `.authorizedAlways`
+    /// has nothing to request, so hanging session creation off the request skipped it on exactly
+    /// the launch that needed it, and REQ-08 never fired. The two concerns are now two calls.
     ///
     /// Spelling confirmed against the live DocC page for `CLServiceSession` on 2026-09-11 (the
     /// page RESEARCH.md's `## Unverified` section could not reach in the research pass):
@@ -82,20 +87,25 @@ final class LocationDelegateProxy: NSObject, @MainActor CLLocationManagerDelegat
         manager.authorizationStatus
     }
 
-    /// The point-of-use Always request (REQ-10): reached only from enabling a trigger, never at
-    /// launch and never from a view. iOS grants Always only as an upgrade from When-In-Use, so an
-    /// undetermined status asks for When-In-Use first. Also the one place this proxy is allowed
-    /// to start holding a `CLServiceSession`, per the foreground-only rule in the doc comment
-    /// above.
+    /// The one place this proxy starts holding a `CLServiceSession`, per the foreground-only rule
+    /// in the doc comment above. Asks for nothing: constructing the session is what makes an
+    /// existing Always grant effective, and the coordinator calls this on every foreground arming
+    /// pass whatever the current status is.
+    func beginAlwaysSession() async {
+        if serviceSession == nil {
+            serviceSession = CLServiceSession(authorization: .always)
+        }
+    }
+
+    /// The point-of-use Always request (REQ-10): reached only from enabling a trigger while the
+    /// app is not already authorized for Always, never at launch and never from a view. iOS
+    /// grants Always only as an upgrade from When-In-Use, so an undetermined status asks for
+    /// When-In-Use first. Holding the session is `beginAlwaysSession()` above, not this.
     func requestAlways() async -> CLAuthorizationStatus {
         if manager.authorizationStatus == .notDetermined {
             manager.requestWhenInUseAuthorization()
         }
         manager.requestAlwaysAuthorization()
-
-        if serviceSession == nil {
-            serviceSession = CLServiceSession(authorization: .always)
-        }
 
         // The SAME bounded poll CoreLocationFixProvider.currentFix() already uses: 250ms x 240 =
         // 60s, then give up and report whatever the status now is. LEARNINGS/that file both
