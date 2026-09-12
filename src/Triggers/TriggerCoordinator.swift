@@ -148,12 +148,32 @@ actor TriggerCoordinator {
             // `geofence.currentCentre()` call below) means recovery and the register condition
             // see the SAME value from the SAME turn.
             let centre = await recoverReferenceIfNeeded()
-            // Only registers when nothing is registered yet AND a reference already exists --
-            // there is nothing to centre a region on before the first ping has ever gone out.
-            // A nil centre is exactly what recovery-from-file (D-16) produces when no region
-            // survived: `reference` is now the file's coordinate, `centre` is still nil, so this
-            // re-registers there -- arming the geofence-only cold start.
-            if centre == nil, let reference {
+            // Registers whenever the region is not ALREADY centred on the reference -- which
+            // covers two distinct cases, not one:
+            //
+            // 1. `centre == nil` -- nothing registered. Exactly what recovery-from-file (D-16)
+            //    produces when no region survived the relaunch: `reference` is now the file's
+            //    coordinate, so this arms the geofence-only cold start (04-15's gap).
+            // 2. `centre != reference` -- a region survived, but centred somewhere ELSE. This
+            //    condition used to read `centre == nil` alone, which treated "a region exists"
+            //    as "the right region exists" and left a STALE region uncorrected: the app went
+            //    on watching a point it had already left, and since a region you are already
+            //    outside of never produces an exit TRANSITION, REQ-08 could never fire again for
+            //    the life of that region. Found by driving the simulator repro (debug/002), not
+            //    by review -- 04-15's `aColdStartWithOnlyTheGeofenceEnabledRecoversTheReference`
+            //    asserts `registrations.count == 1`, so the suite actively pinned the old
+            //    behaviour.
+            //
+            // Still nothing to register before the first ping has ever gone out: a nil
+            // `reference` registers nothing at all.
+            //
+            // Equality is exact, deliberately: a tolerance would be a new numeric constant this
+            // file has no authority to invent (see `radiusMetres`'s backstop note). If a device
+            // turns out to round-trip `condition.center` inexactly, this re-registers on every
+            // arming pass -- idempotent under the single fixed identifier, but it also resets the
+            // region's inside/outside baseline, so the tolerance question is a decision to rule,
+            // not to guess. Recorded in debug/002.
+            if let reference, centre != reference {
                 await geofence.register(at: reference)
             }
         } else {
