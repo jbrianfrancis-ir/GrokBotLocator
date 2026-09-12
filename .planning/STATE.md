@@ -2,9 +2,9 @@
 # State
 ## Position
 Phase: 4 of 4 (Automatic triggers) | Plans: 15/15 | Status: verifying — gaps: [], human checks open
-Last: 2026-09-12 — debug/001 RESOLVED: an already-Always cold relaunch held no
-  CLServiceSession, so Always was inert. Smoke GREEN 269/29.
-Next: re-run REQ-08's device repro (GeofenceMonitor.swift); rule D-17/18/19 → /flow-verify 4
+Last: 2026-09-12 — 3 real defects fixed (debug/001 missing CLServiceSession, debug/002 stale
+  region never re-centred, D-18 dishonest no-queue copy). Smoke GREEN 272/29.
+Next: install on a REAL iPhone — the simulator stopped delivering location events (debug/002)
 ## Gate
 type: human-action
 asked: No gaps left, smoke green. 5 checks need a device; 3 backstops need a stated RULE —
@@ -21,9 +21,11 @@ Signature: rule2:phase04:plans15/15:verifhuman
 - D-15: MapKit for reverse geocoding, one file
 - D-16: 2nd coordinate store — the last-ping position, overwritten never appended
 ## Blockers
-- none blocking. REQ-08's cause FIXED (75d36a2), UNPROVEN on device — D-17/18/19.
-- 2 latent findings filed not fixed — see debug/001's Resolution (zero coverage on
-  CLMonitorGeofence's real body; a permanently-killable observation task).
+- SIMULATOR IS NOT A USABLE ORACLE (debug/002): no wake-based location trigger fires on it
+  today — significant-change included, though VERIFICATION recorded it PASSED 2026-09-11.
+  Try `simctl erase` + one clean run, else all of REQ-06/07/08 need real hardware.
+- D-17/18/19 were RULED 2026-09-11; D-18's code change is now done. D-17/D-19 want tests.
+- 2 latent findings filed not fixed — see TODOS.md.
 ## Session
 Stopped: 74 commits on flow/automatic-triggers, 3 unpushed. No PR opened.
 Resume: REQ-08 had TWO causes, both closed — 04-15's arming gap, debug/001's missing session.
