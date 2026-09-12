@@ -39,8 +39,13 @@
 - Offline queue is a `Codable` array in Application Support via `FileManager` — no SwiftData, no Core Data. The file is the durability mechanism; drain on every wake with a plain `URLSession`. `URLSessionConfiguration.background` is not the primary path.
 - **The queue file is a sanctioned store for coordinates** (D-12, 2026-09-10). Narrow: written with
   `.completeFileProtectionUnlessOpen`, excluded from backups (`isExcludedFromBackup`), each entry
-  deleted the moment it is delivered, and never copied anywhere else. A queue that keeps delivered
-  pings is a location history, which is not what this is for.
+  deleted the moment it is delivered, and never copied to another DURABLE store. A queue that keeps
+  delivered pings is a location history, which is not what this is for.
+  **Narrowed by D-17 (2026-09-11):** reading queue entries into the in-memory, session-only history
+  so a relaunch can show what is still pending is display, not storage — it creates no second
+  durable copy and dies with the process. `QueueDrainCoordinator.hydrate()` is that path and is
+  approved. The ban that stands is on a second durable copy; `UserDefaults`, logs and analytics
+  remain off limits regardless of lifetime.
 - **The last-ping coordinate is the second sanctioned store** (D-16, 2026-09-11). D-12's "never
   copied anywhere else" is widened by exactly this much and no further. REQ-08 re-registers a
   geofence at the last ping, and a cold relaunch has no other way to recover where that was —
