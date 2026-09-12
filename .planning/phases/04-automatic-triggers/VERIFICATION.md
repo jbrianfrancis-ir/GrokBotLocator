@@ -2,7 +2,8 @@
 phase: 04-automatic-triggers
 status: human_needed
 smoke: pass
-gaps: []
+gaps:
+  - "REQ-08 does not fire at RUNTIME, after 04-15. Reproduced twice on the iOS 26 simulator with the signed build: geofence as the ONLY enabled trigger, a cold relaunch (`simctl terminate` then `launch`), `LastPing.json` holding a valid reference (37.33888380,-122.03254703), then 200 m of real interpolated movement (`simctl location start --speed=15 --distance=25`) past the 150 m radius -> NO ping, history empty (\"No pings yet\"), and the store unchanged. 04-15's unit tests pass, including `aColdStartWithNoRegionRecoversFromTheLastPingFileAndArms` which asserts the region IS registered from the file, so the break is between that unit-level state and a delivered CLMonitor event. NOT a platform limitation: the Task 1 probe measured CLMonitor persisting across a process kill AND delivering an event after the same kind of movement. A companion observation, same session: with significant-change also enabled, a ping fired at ~400 m displacement -- under the 500 m gate -- which is best explained by a nil reference producing a bootstrap ping rather than by a geofence exit, i.e. the runtime reference recovery may also not be taking effect. Cause unknown; needs /flow-debug, not another replan."
 unverified:
   - "04-05: `QueueDrainCoordinator.hydrate()` copies queue entries into `PingHistoryLog` vs ARCHITECTURE.md:72 'never copied anywhere else' — still present (QueueDrainCoordinator.swift:86-110), deliberately not ruled on."
   - "04-10: `UnqueuedPingSink` (PingSender.swift:67) echoes the classifier's retryable sentence, which `PingSender` then downgrades to `.permanentFailure` — a 429 in the no-queue build still renders as 'Failed: it is waiting and will be sent again.' Conflicts with D-14; untouched on purpose."
