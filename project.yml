@@ -14,7 +14,22 @@ targets:
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: NO
-        CODE_SIGN_IDENTITY: "-"
+        # Signing is SDK-CONDITIONAL, and it has to be. A plain
+        # `CODE_SIGN_IDENTITY: "-"` is a TARGET setting, so it overrode
+        # Signing.xcconfig and told Xcode's Signing & Capabilities editor that
+        # development signing was off -- the editor then refused to manage a
+        # profile at all ("requires a provisioning profile. Enable development
+        # signing..."), which made a device build impossible from the GUI. The
+        # command line could only get past it by overriding the same key.
+        #
+        # Simulator keeps ad-hoc so the smoke gate needs no team, no cert and no
+        # profile; device builds get real development signing. DEVELOPMENT_TEAM
+        # still comes ONLY from the gitignored Signing.xcconfig (ARCHITECTURE
+        # forbids it, and a bundle id, entering the repo) -- nothing here names
+        # a team or an identity value beyond Apple's own generic identity name.
+        CODE_SIGN_IDENTITY[sdk=iphonesimulator*]: "-"
+        CODE_SIGN_IDENTITY[sdk=iphoneos*]: "Apple Development"
+        CODE_SIGN_STYLE: Automatic
         CODE_SIGN_ENTITLEMENTS: GrokBotLocator.entitlements
         # App Store Connect rejects a build with no app icon, so TestFlight (the
         # no-cable install path) needs this even though a development install does not.
