@@ -87,6 +87,10 @@ struct SettingsModelTests {
             return attempt
         }
 
+        func send(label: String, using fix: LocationFix) async -> PingAttempt {
+            await send(label: label)
+        }
+
         /// Returns once `send(label:)` has been entered, whether that already happened or not.
         func waitUntilEntered() async {
             guard !didEnter else { return }
@@ -97,6 +101,50 @@ struct SettingsModelTests {
         func release() {
             parked?.resume()
             parked = nil
+        }
+    }
+
+    /// Records every `update(_:)` and answers `currentSettings()`/`authorizationNotice()` from
+    /// whatever it was last told -- an actor, per `FakeSender` above, because `TriggerControlling`
+    /// is async and a `@MainActor` suite must not read its counters with no ordering between
+    /// the two. `await Task.yield()` before each return, per LEARNINGS, so a suite that
+    /// forgets to await the actor boundary would still see interleaving rather than a
+    /// same-thread illusion of synchronity.
+    private actor FakeTriggerControl: TriggerControlling {
+        private(set) var settings: TriggerSettings
+        private(set) var recordedUpdates: [TriggerSettings] = []
+        private var notice: String?
+        /// What `authorizationNotice()` answers ONCE `update(_:)` has been called at least once
+        /// -- lets `theNoticeRefreshesAfterATriggerChanges` prove the notice is re-read after a
+        /// change rather than cached from `init`.
+        private let noticeAfterUpdate: String?
+
+        init(
+            settings: TriggerSettings = .initial, notice: String? = nil,
+            noticeAfterUpdate: String? = nil
+        ) {
+            self.settings = settings
+            self.notice = notice
+            self.noticeAfterUpdate = noticeAfterUpdate
+        }
+
+        func update(_ settings: TriggerSettings) async {
+            await Task.yield()
+            recordedUpdates.append(settings)
+            self.settings = settings
+            if let noticeAfterUpdate {
+                notice = noticeAfterUpdate
+            }
+        }
+
+        func currentSettings() async -> TriggerSettings {
+            await Task.yield()
+            return settings
+        }
+
+        func authorizationNotice() async -> String? {
+            await Task.yield()
+            return notice
         }
     }
 
@@ -505,5 +553,171 @@ struct SettingsModelTests {
 
         #expect(model.status == .saved)
         #expect(model.connectionReport?.succeeded == false)
+    }
+
+    // MARK: Trigger controls (REQ-09/REQ-10) -- no CoreLocation, no UserDefaults; a fake
+    // `TriggerControlling` stands in for `TriggerCoordinator`.
+
+    /// Flips all three in sequence on ONE model, checking after each flip that the triggers
+    /// already on stay on. `setVisits` goes SECOND deliberately: the defect this pins --
+    /// rebuilding an update from `TriggerSettings.initial` instead of the model's current
+    /// `triggerSettings` -- looks correct on a first flip (everything else is already off) and
+    /// only shows up once an earlier switch has something to lose. Putting the suspect setter
+    /// first would let the bug hide behind an all-false starting point.
+    @Test
+    func eachSwitchChangesOnlyItsOwnTrigger() async {
+        let fake = FakeTriggerControl()
+        let model = SettingsModel(store: FakeCredentialStore(), triggers: fake)
+
+        await model.setSignificantChange(true)
+        var recorded = await fake.recordedUpdates
+        #expect(recorded.count == 1)
+        #expect(recorded[0].significantChangeEnabled == true)
+        #expect(recorded[0].visitsEnabled == false)
+        #expect(recorded[0].geofenceEnabled == false)
+
+        await model.setVisits(true)
+        recorded = await fake.recordedUpdates
+        #expect(recorded.count == 2)
+        #expect(recorded[1].visitsEnabled == true)
+        #expect(
+            recorded[1].significantChangeEnabled == true,
+            "significant change, already on, must be left alone")
+        #expect(recorded[1].geofenceEnabled == false)
+
+        await model.setGeofence(true)
+        recorded = await fake.recordedUpdates
+        #expect(recorded.count == 3)
+        #expect(recorded[2].geofenceEnabled == true)
+        #expect(
+            recorded[2].significantChangeEnabled == true,
+            "significant change, already on, must be left alone")
+        #expect(
+            recorded[2].visitsEnabled == true,
+            "visits, already on, must be left alone")
+    }
+
+    /// REQ-09's floor, expressed through `SettingsModel` rather than `TriggerSettings` directly
+    /// -- proves the model routes through the clamp instead of forwarding the raw value.
+    @Test
+    func theIntervalCannotBeDrivenBelowTheFloor() async {
+        let fake = FakeTriggerControl()
+        let model = SettingsModel(store: FakeCredentialStore(), triggers: fake)
+
+        await model.setMinimumInterval(2)
+
+        let recorded = await fake.recordedUpdates
+        #expect(recorded.count == 1)
+        #expect(recorded[0].minimumIntervalSeconds == PingRateLimiter.hardFloor)
+        #expect(model.triggerSettings.minimumIntervalSeconds == PingRateLimiter.hardFloor)
+    }
+
+    /// A refused Always prompt has to produce its sentence without the user leaving the
+    /// screen -- so the notice must be re-read AFTER `update(_:)`, not just on `loadTriggers()`.
+    @Test
+    func theNoticeRefreshesAfterATriggerChanges() async {
+        let refusedSentence = TriggerAuthorizationNotice.notice(
+            for: .authorizedWhenInUse, alwaysWasRequested: true)
+        let fake = FakeTriggerControl(noticeAfterUpdate: refusedSentence)
+        let model = SettingsModel(store: FakeCredentialStore(), triggers: fake)
+
+        await model.loadTriggers()
+        #expect(model.triggerNotice == nil)
+
+        await model.setVisits(true)
+
+        #expect(model.triggerNotice == refusedSentence)
+    }
+
+    /// ARCHITECTURE: fully usable at When In Use. A missing coordinator (the app came up with
+    /// none) must not make Settings unusable -- the switch still moves even with nothing
+    /// downstream to arm it.
+    @Test
+    func aModelWithNoCoordinatorStillFlipsItsSwitches() async {
+        let model = SettingsModel(store: FakeCredentialStore(), triggers: nil)
+
+        await model.setVisits(true)
+
+        #expect(model.triggerSettings.visitsEnabled == true)
+    }
+
+    @Test
+    func loadTriggersReadsTheCurrentSettingsAndNotice() async {
+        let settings = TriggerSettings(
+            significantChangeEnabled: false, visitsEnabled: false, geofenceEnabled: true,
+            minimumIntervalSeconds: 120)
+        let notice = "a fixture notice, not a real sentence"
+        let fake = FakeTriggerControl(settings: settings, notice: notice)
+        let model = SettingsModel(store: FakeCredentialStore(), triggers: fake)
+
+        await model.loadTriggers()
+
+        #expect(model.triggerSettings == settings)
+        #expect(model.triggerNotice == notice)
+    }
+
+    /// ARCHITECTURE: fully usable at When In Use -- turning triggers on and off must never
+    /// touch the credential fields or the Save path.
+    @Test
+    func manualPingsAreNeverGatedByATriggerSwitch() async {
+        let fake = FakeTriggerControl()
+        let model = SettingsModel(store: FakeCredentialStore(), triggers: fake)
+        model.urlText = Self.fixtureURL.absoluteString
+        model.senderKey = Self.fixtureKey
+        model.headerName = Self.fixtureHeader
+        model.save()
+        let urlBefore = model.urlText
+        let keyBefore = model.senderKey
+        let headerBefore = model.headerName
+        let hasStoredBefore = model.hasStoredKey
+
+        await model.setSignificantChange(true)
+        await model.setVisits(true)
+        await model.setGeofence(true)
+        await model.setSignificantChange(false)
+        await model.setVisits(false)
+        await model.setGeofence(false)
+
+        #expect(model.urlText == urlBefore)
+        #expect(model.senderKey == keyBefore)
+        #expect(model.headerName == headerBefore)
+        #expect(model.hasStoredKey == hasStoredBefore)
+    }
+
+    /// The full chain, the UI's own path: a real `TriggerCoordinator` (not `FakeTriggerControl`)
+    /// wired to a real `PingRateLimiter`, driven through `SettingsModel.setMinimumInterval` --
+    /// the exact call SettingsView's Stepper makes -- and asserted against the GATE, not against
+    /// what got persisted. LEARNINGS: a fake that returns without suspending cannot test an
+    /// actor, so this uses the real limiter throughout, never a fake.
+    @Test
+    func anIntervalChangedInSettingsReachesTheGate() async {
+        let limiter = PingRateLimiter()
+        let coordinator = TriggerCoordinator(
+            source: TriggerCoordinatorTests.FakeTriggerSource(),
+            geofence: InMemoryGeofence(),
+            pinger: TriggerCoordinatorTests.CountingPinger(scriptedResults: []),
+            // No trigger event is ever delivered in this test, so no fix is ever requested.
+            fixes: TriggerCoordinatorTests.FakeFixProvider(result: .failure(KeychainFailure())),
+            settingsStore: TriggerCoordinatorTests.FakeSettingsStore(initial: .initial),
+            lastPing: InMemoryLastPingStore(),
+            rateLimiter: limiter,
+            drain: {})
+        await coordinator.start()
+
+        let model = SettingsModel(store: FakeCredentialStore(), triggers: coordinator)
+        await model.loadTriggers()
+        await model.setMinimumInterval(PingRateLimiter.defaultInterval * 2)
+
+        let t = Date(timeIntervalSince1970: 1_700_000_000)
+        #expect(await limiter.claim(at: t) == .allowed)
+        // Halfway between the default and twice the default -- ALLOWED at the old wiring
+        // (default interval), REFUSED once the doubled interval set in Settings reaches the gate.
+        guard
+            case .tooSoon = await limiter.claim(
+                at: t.addingTimeInterval(PingRateLimiter.defaultInterval * 1.5))
+        else {
+            Issue.record("the gate ignored the interval set in Settings")
+            return
+        }
     }
 }

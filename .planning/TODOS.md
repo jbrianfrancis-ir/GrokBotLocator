@@ -1,0 +1,3 @@
+# Todos
+- [ ] 2026-09-12: CLMonitorGeofence's real body has ZERO test coverage — every GeofenceMonitorTests case drives the InMemoryGeofence fake, and the only lines touching the concrete type are two static-constant assertions (:86, :141). register/currentCentre/startObserving are unexercised, so any defect there ships green. Found in debug/001.
+- [ ] 2026-09-12: GeofenceMonitor.swift:116-118 returns out of the `for try await` loop on conditionLimitExceeded/authorizationDenied, permanently killing the sole observation task — startObserving is called exactly once per process (TriggerCoordinator.start():83), so nothing re-arms it if authorization later recovers. Never observed firing. Found in debug/001.

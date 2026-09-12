@@ -246,6 +246,10 @@ private final class PreviewPingSending: PingSending, @unchecked Sendable {
         index += 1
         return attempt
     }
+
+    func send(label: String, using fix: LocationFix) async -> PingAttempt {
+        await send(label: label)
+    }
 }
 
 /// In memory only -- never `UserDefaults`, so a preview cannot write into the real app's label.
@@ -283,7 +287,10 @@ private struct PreviewPingHome: View {
                 sender: PreviewPingSending(
                     attempts: [previewSentAttempt, previewFailedAttempt]),
                 labelStore: PreviewPingLabelStore(stored: "Gallipoli"),
-                fixes: PreviewFixProvider()))
+                fixes: PreviewFixProvider(),
+                // A real limiter, not a fake: nothing in this preview taps fast enough to hit
+                // the gate, so the production default interval is fine here.
+                rateLimiter: PingRateLimiter(), now: { Date() }))
     }
 
     var body: some View {

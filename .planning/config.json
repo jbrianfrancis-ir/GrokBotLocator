@@ -15,6 +15,6 @@
     "base": "main",
     "origin": "origin",
     "upstream": null,
-    "branch": "flow/durable-delivery"
+    "branch": "flow/automatic-triggers"
   }
 }
