@@ -33,10 +33,22 @@
   historical and reads so. A separate, UNVERIFIED risk surfaced by the same trace is recorded in
   TODOS.md, not fixed here: a terminated app relaunched in the background for a location event may
   never run `TriggerCoordinator.start()` (it hangs off the root view's `.task`), so the delegate
-  handlers would be nil on exactly that wake. Smoke NOT run for this change — no Swift toolchain in
-  the session that made it; the next `scripts/smoke.sh` run is the evidence.
+  handlers would be nil on exactly that wake. Smoke NOT run in the session that made this change —
+  no Swift toolchain — and the deferral cost something: `DurablePingSinkTests` did not COMPILE
+  (`aSealedQueueSentenceDoesNotAskForATap` named `store.appended`, a member the fake never had),
+  so the test pinning (3) had never once run. Fixed 2026-09-12 (1209698).
+- **evidence** (2026-09-12): `scripts/smoke.sh` green on main at c18070f — 275 tests, 29 suites,
+  every guard, including the queue-protection guard's new check that
+  `.completeFileProtectionUnlessOpen` is ABSENT. Merged via PR #6. Signed build installed and
+  launched on the iPhone, profile to 2027-09-12. LIMIT, probed not assumed: the simulator
+  surfaces no `NSFileProtectionKey` at all — a control file and a file written WITH the
+  protection option both read back nil — so `theQueueFileCarriesTheStatedProtectionClass`'s
+  runtime branch has never executed and the test pins only the named seam. That seam does reach
+  the single private `write()` every mutation goes through, so the app demonstrably ASKS for the
+  right class, and asking wrong WAS the bug. That iOS APPLIES it, and that a ping survives an
+  offline trigger from a locked pocket, stay UNPROVEN until the field check.
 - **by**: Brian Francis <127874124+jbrianfrancis-ir@users.noreply.github.com>
-- **at**: (this branch) · phase 04 (verification) · amends ARCHITECTURE.md
+- **at**: main c18070f (PR #6) · phase 04 (verification) · amends ARCHITECTURE.md
 
 ## 2026-09-12 · checkpoint-decision (D-20) — bundle id renamed to clear a team collision
 - **asked**: With the paid team's Development cert renewed and Xcode signed in, Apple refused to
