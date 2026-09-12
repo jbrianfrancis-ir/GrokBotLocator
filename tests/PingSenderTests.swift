@@ -428,15 +428,35 @@ struct PingSenderTests {
         #expect(fakes.sink.enqueueCallCount == 0)
     }
 
-    /// The invariant the return type now enforces: the sink phase 02 actually ships can never
-    /// report a ping as queued, because nothing durable exists to hold it. Before this was a
-    /// returned value, only a comment said so.
+    /// The invariant the return type now enforces: the fallback sink can never report a ping as
+    /// queued, because nothing durable exists to hold it. Before this was a returned value, only
+    /// a comment said so.
     @Test
     func theShippedSinkNeverClaimsToHaveQueuedAnything() async {
         let outcome = await UnqueuedPingSink().enqueue(
             Self.fixtureFix.payload(label: "Gallipoli"), reason: "Server said try later.")
 
-        #expect(outcome == .notQueued(reason: "Server said try later."))
+        #expect(outcome == .notQueued(reason: UnqueuedPingSink.noQueueReason))
+    }
+
+    /// D-18's pinning test. The ratified rule is that with nothing holding the ping it IS final,
+    /// so the sink must NOT echo the classifier's retryable sentence -- that sentence promises a
+    /// retry the rule says will never happen, which is precisely what made a 429 render as
+    /// "Failed: it is waiting and will be sent again."
+    @Test
+    func theNoQueueSinkDoesNotEchoTheRetryablePromise() async {
+        let retryablePromise = "Server said try later: it is waiting and will be sent again."
+        let outcome = await UnqueuedPingSink().enqueue(
+            Self.fixtureFix.payload(label: "Gallipoli"), reason: retryablePromise)
+
+        guard case .notQueued(let shown) = outcome else {
+            Issue.record("expected .notQueued, got \(outcome)")
+            return
+        }
+        #expect(shown != retryablePromise, "the classifier's retry promise must not be echoed")
+        #expect(!shown.lowercased().contains("will be sent again"))
+        #expect(!shown.lowercased().contains("waiting"))
+        #expect(shown == UnqueuedPingSink.noQueueReason)
     }
 
     // MARK: send(label:using:) -- the automatic path (04-10). The fix is already in hand, so

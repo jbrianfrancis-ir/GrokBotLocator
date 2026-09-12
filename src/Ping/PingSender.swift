@@ -60,13 +60,28 @@ protocol PendingPingSink: Sendable {
     func enqueue(_ payload: PingPayload, reason: String) async -> PingEnqueueOutcome
 }
 
-/// The implementation phase 02 ships. Nothing durable exists yet, so nothing is EVER queued --
-/// and saying so in the return type is what makes that a type-enforced invariant rather than a
-/// promise kept by a comment. Echoes the classifier's own sentence back rather than inventing
-/// copy about the build. Phase 03 swaps in the durable queue that conforms to the same protocol.
+/// The fallback conformer, used when Application Support is unavailable so no durable queue
+/// exists. Nothing is EVER queued here -- saying so in the return type is what makes that a
+/// type-enforced invariant rather than a promise kept by a comment.
+///
+/// D-18 (2026-09-11) is why it no longer echoes `reason` back. The classifier's retryable
+/// sentences promise a retry ("... it is waiting and will be sent again."), and the human
+/// ratified the downgrade: with nothing holding the ping, it IS final for the user. Echoing that
+/// sentence through a sink that queues nothing rendered a 429 as "Failed: it is waiting and will
+/// be sent again." -- a sentence that contradicts itself and promises something the ratified rule
+/// says will never happen. So this supplies its OWN sentence, which is exactly what
+/// `send(label:using:)`'s `.notQueued` arm already assumes it does ("the sink supplied the
+/// sentence because only it knows what is safe to show"). It deliberately says nothing about
+/// WHY the server refused -- the status code and body are surfaced separately by REQ-11's Test
+/// connection -- only that this ping is gone and tapping again is the remedy.
 struct UnqueuedPingSink: PendingPingSink {
+    /// The honest no-queue sentence. Public so a test can pin it by name rather than by
+    /// duplicating the string (D-18: a stated rule with no test drifts back into an abstention).
+    static let noQueueReason =
+        "Not sent, and this device has no offline queue to hold it. Tap I'm here to try again."
+
     func enqueue(_ payload: PingPayload, reason: String) async -> PingEnqueueOutcome {
-        .notQueued(reason: reason)
+        .notQueued(reason: Self.noQueueReason)
     }
 }
 
