@@ -3,7 +3,7 @@
 ## Position
 Phase: 4 of 4 (Automatic triggers) | Plans: 15/15 | Status: verifying — gaps: [], human checks open
 Last: 2026-09-11 — 04-15 closed the REQ-08 arming gap. Smoke GREEN 267 tests/29 suites.
-Next: 5 device checks + rule the 3 backstops, then /flow-pr
+Next: /flow-debug REQ-08 runtime; D-17/18/19 still need tests
 ## Gate
 type: human-action
 asked: No gaps left, smoke green. 5 checks need a device; 3 backstops need a stated RULE —
@@ -21,7 +21,10 @@ Signature: rule2:phase04:plans15/15:verifhuman
 - D-15: MapKit for reverse geocoding, one file
 - D-16: 2nd coordinate store — the single last-ping position, overwritten never appended
 ## Blockers
-- none (REQ-09 enforcement closed by 04-14; REQ-08 arming closed by 04-15)
+- GAP REQ-08 does not fire at RUNTIME despite 04-15's unit tests passing. Reproduced twice:
+  geofence-only, cold relaunch, valid LastPing.json, 200 m past the 150 m radius -> no ping.
+  The probe proved CLMonitor persists AND delivers events, so it is not the platform.
+  Cause unknown -> /flow-debug, not a replan.
 ## Session
 Stopped: 71 commits on flow/automatic-triggers, pushed. No PR opened.
 Resume: CLMonitor persistence + event delivery MEASURED (RESEARCH Q2 addendum) — the earlier
