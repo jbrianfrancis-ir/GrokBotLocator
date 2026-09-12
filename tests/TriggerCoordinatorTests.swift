@@ -210,13 +210,13 @@ struct TriggerCoordinatorTests {
         minimumIntervalSeconds: TimeInterval = PingRateLimiter.defaultInterval,
         rateLimiter: any PingRateLimiting = PingRateLimiter(),
         lastPing: any LastPingStoring = InMemoryLastPingStore(),
-        authorization: CLAuthorizationStatus = .authorizedWhenInUse
+        authorization: CLAuthorizationStatus = .authorizedWhenInUse,
+        geofence: InMemoryGeofence = InMemoryGeofence()
     ) -> (
         coordinator: TriggerCoordinator, source: FakeTriggerSource, geofence: InMemoryGeofence,
         pinger: CountingPinger, counter: DrainCounter, store: FakeSettingsStore
     ) {
         let source = FakeTriggerSource(authorization: authorization)
-        let geofence = InMemoryGeofence()
         let pinger = CountingPinger(scriptedResults: pingerScript)
         let fixes = FakeFixProvider(result: fixResult)
         var settings = TriggerSettings.initial
@@ -493,6 +493,56 @@ struct TriggerCoordinatorTests {
 
         #expect(await coordinator.currentReference() == coordinate)
         #expect(await geofence.currentCentre() == coordinate, "the region must be registered FROM the file")
+    }
+
+    /// debug/002, found by driving the simulator repro rather than by review: a region that
+    /// SURVIVED a relaunch but is centred somewhere the app has since moved on from must be
+    /// re-registered at the real reference. The old condition (`centre == nil`) read "a region
+    /// exists" as "the right region exists" and left the stale one in place — and because a
+    /// region you are already outside of never produces an exit TRANSITION, REQ-08 could never
+    /// fire again for the life of that region.
+    ///
+    /// The measured shape: region at 37.33527476, last-ping file at 37.33888380 (~400 m apart),
+    /// geofence-only, cold relaunch → the app went on watching the stale point and no exit was
+    /// ever delivered.
+    @Test
+    func aColdStartWithAStaleRegionReRegistersAtTheLastPingCoordinate() async {
+        let geofence = InMemoryGeofence()
+        let stale = Self.coordinate(1, 1)
+        let real = Self.coordinate(2, 2)
+        // A region survives the relaunch, centred somewhere that is NOT where the last ping was.
+        await geofence.register(at: stale)
+        let store = InMemoryLastPingStore()
+        await store.save(real)
+        let (coordinator, _, _, _, _, _) = Self.makeCoordinator(
+            geofenceEnabled: true, lastPing: store, geofence: geofence)
+
+        await coordinator.start()
+
+        #expect(await coordinator.currentReference() == real)
+        #expect(
+            await geofence.currentCentre() == real,
+            "a stale region must be re-registered at the last-ping coordinate, not left alone")
+        // Two registrations total: the seeded stale one, then the correction.
+        #expect(await geofence.registrations == [stale, real])
+    }
+
+    /// The other side of the same condition — the case 04-15 added and this must not regress:
+    /// when the surviving region ALREADY sits on the reference there is nothing to correct, and
+    /// re-registering would needlessly reset the region's inside/outside baseline.
+    @Test
+    func aColdStartWithTheRegionAlreadyOnTheReferenceDoesNotReRegister() async {
+        let geofence = InMemoryGeofence()
+        let onPoint = Self.coordinate(7, 7)
+        await geofence.register(at: onPoint)
+        let store = InMemoryLastPingStore()
+        await store.save(onPoint)
+        let (coordinator, _, _, _, _, _) = Self.makeCoordinator(
+            geofenceEnabled: true, lastPing: store, geofence: geofence)
+
+        await coordinator.start()
+
+        #expect(await geofence.registrations == [onPoint], "no redundant re-registration")
     }
 
     /// D-16 condition 4's coordinator-level half: a real ping first proves the store holds the
